@@ -1,0 +1,130 @@
+<project name="sfdc-crawler" default="compile">
+  <property name="builddir" value="${basedir}/crawler/build"/>
+  <property name="classes" value="${builddir}/classes"/>
+  <property name="libclasses" value="${builddir}/libclasses"/>
+  <property name="jarfile" value="${builddir}/sfdc-crawler.jar"/>
+  <property name="libfile" value="${builddir}/sfdc-lib.jar"/>
+
+  <path id="lwe-runtime-libraries">
+    <fileset dir="${lwe.home}/app/webapps/lwe-core/lwe-core/WEB-INF/lib">
+      <include name="**/*.jar"/>
+    </fileset>
+  </path>
+
+  <target name="_check_lwe_home">
+    <available file="${lwe.home}" type="dir" property="lwe.home.set"/>
+    <condition property="compile.libs.set">
+      <isreference refid="compile-libraries"/>
+    </condition>
+    <condition property="all.set">
+      <or>
+        <isset property="lwe.home.set"/>
+        <isset property="compile.libs.set"/>
+      </or>
+    </condition>
+  </target>
+
+  <target name="_warn" unless="all.set">
+    <echo>
+WARNING: skipping compilation! Reference to "compile-libraries" is missing.
+You must define lwe.home property to point to an existing
+LucidWorks installation directory.
+E.g.
+  ant -Dlwe.home=${user.home}/LucidWorks
+  </echo>
+  </target>
+
+  <target name="_set_lwe_home_libs" if="lwe.home.set">
+    <path id="libs">
+      <path refid="lwe-runtime-libraries"/>
+    </path>
+    <property name="assemble.dir" value="${basedir}"/>
+    <property name="assemble.sources" value="false"/>
+  </target>
+
+  <target name="_set_inherited_libs" if="compile.libs.set">
+    <path id="libs">
+      <path refid="crawler-compile-classpath"/>
+    </path>
+    <property name="assemble.dir" value="${basedir}/../../build/examples/java"/>
+    <property name="assemble.sources" value="true"/>
+  </target>
+
+  <target name="init" depends="_check_lwe_home,_warn,_set_lwe_home_libs,_set_inherited_libs" if="all.set">
+    <mkdir dir="${classes}"/>
+    <mkdir dir="${libclasses}"/>
+  </target>
+
+  <target name="lib" depends="init" if="all.set">
+    <javac srcdir="crawler/src/lib-src"
+      source="1.6"
+      target="1.6"
+      destdir="${libclasses}"
+    >
+      <classpath>
+        <path refid="libs"/>
+        <pathelement path="${classes.dir}"/>
+      </classpath>
+    </javac>
+  </target>
+
+  <target name="compile" depends="lib" if="all.set">
+    <javac srcdir="crawler/src/java"
+      source="1.6"
+      target="1.6"
+      destdir="${classes}"
+      debug="on"
+    >
+      <classpath>
+        <pathelement path="${libclasses}"/>
+        <path refid="libs"/>
+        <pathelement path="${classes.dir}"/>
+      </classpath>
+    </javac>
+  </target>
+
+  <target name="test" depends="compile">
+    <echo>Test goes here</echo>
+  </target>
+
+  <target name="clean-build">
+    <delete dir="${builddir}"/>
+  </target>
+
+  <target name="clean" depends="clean-build">
+    <delete>
+      <fileset dir="." includes="*.jar"/>
+    </delete>
+  </target>
+
+  <target name="assemble" depends="compile" if="all.set">
+    <jar basedir="${libclasses}"
+      jarfile="${libfile}"
+      includes="com/**"/>
+    <jar basedir="${classes}"
+      jarfile="${jarfile}"
+      includes="com/**">
+      <fileset file="${libfile}"/>
+      <manifest>
+        <attribute name="Crawler-Alias" value="leancog.sfdc"/>
+        <attribute name="Crawler-Class" value="com.leancog.crawl.SfdcCrawlerController"/>
+      </manifest>
+    </jar>
+    <mkdir dir="${assemble.dir}" />
+    <copy todir="${assemble.dir}" >
+      <fileset file="${jarfile}"/>
+    </copy>
+    <antcall target="clean-build"/>
+    <antcall target="assemble_sources"/>
+  </target>
+
+  <target name="assemble_sources" if="assemble.sources">
+    <copy todir="${assemble.dir}" >
+      <fileset dir=".">
+        <exclude name=".gitignore"/>
+        <exclude name="crawler/.eclipse"/>
+        <exclude name="crawler/build"/>
+      </fileset>
+    </copy>
+  </target>
+</project>

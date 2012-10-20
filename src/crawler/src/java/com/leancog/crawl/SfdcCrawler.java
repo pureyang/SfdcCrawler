@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Date;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 
 import org.apache.solr.common.util.DateUtil;
 import org.slf4j.Logger;
@@ -53,8 +55,8 @@ public class SfdcCrawler implements Runnable {
     state.getStatus().starting();
     try {
       state.getProcessor().start();
-      if (ds.getType().equals("sfdcknowledge")) {
-        runRandomCrawl();
+      if (ds.getType().equals("salesforce")) {
+        runSalesforceCrawl();
       }
     } catch (Throwable t) {
       LOG.warn("Exception in Salesforce crawl", t);
@@ -80,46 +82,25 @@ public class SfdcCrawler implements Runnable {
     stopped = true;
   }
   
-  
-  /*
-   * Create a bunch of random documents with random phrases. 
-   */
-  private static final String[] luckyWords = new String[] {
-    "accommodate", "acknowledgment", "argument", "commitment", "consensus",
-    "deductible", "dependent", "embarrass", "existence", "foreword",
-    "harass", "inadvertent", "indispensable", "American judgment", "liaison",
-    "license", "occassion", "occurrence", "perseverance", "prerogative",
-    "privilege", "proceed", "separate", "supersede", "withhold",
-    "British acknowledgement", "British judgement"
-  };
-  
-  private void runRandomCrawl() throws Exception {
-    int numDocs = ds.getInt(SfdcKnowledgeSpec.NUM_DOCS);
-    LOG.info("Sfdc Knowledge Random crawl: max num_docs=" + numDocs);
-    // randomize between [numDocs / 2, numDocs]
-    numDocs = numDocs / 2 + FakeUtil.nextInt(numDocs / 2);
-    LOG.info("Sfdc Knowledge Random crawl: real num_docs=" + numDocs);
+  private void runSalesforceCrawl() throws Exception {
+    LOG.info("Sfdc crawler started");
+    
+	// just put something into the index
     StringBuilder sb = new StringBuilder();
-    for (int i = 0; i < numDocs; i++) {
-      if (stopped) {
-        break;
-      }
-      Content c = new Content();
-      c.setKey("xrandom:" + i + "/" + numDocs);
-      sb.setLength(0);
-      sb.append("This is random content " + i + " of " + numDocs + " .\n");
-      sb.append(" SFDC Your lucky words are: ");
-      for (int k = 0; k < 3; k++) {
-        if (k > 0) sb.append(", ");
-        sb.append(luckyWords[FakeUtil.nextInt(numDocs + i + k) % luckyWords.length]);
-      }
-      c.setData(sb.toString().getBytes());
-      c.addMetadata("Content-Type", "text/plain");
-      c.addMetadata("title", "random content " + i + " of " + numDocs);
-      state.getProcessor().process(c);
-    }
+	Content c = new Content();
+    c.setKey("sfdc");
+    sb.setLength(0);
+    // insert the time that the crawler was run
+    DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+	Date date = new Date();
+    sb.append(" SFDC Crawler was here " + dateFormat.format(date));
+    c.setData(sb.toString().getBytes());
+    c.addMetadata("Content-Type", "text/plain");
+    c.addMetadata("title", "SFDC Crawler");
+    state.getProcessor().process(c);
   }
 
+  // keeping these methods around in case we end up downloading attachments from sfdc during crawl
   /*
    * Traverse the file system hierarchy up to a depth.
    *

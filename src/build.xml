@@ -106,7 +106,7 @@ E.g.
       includes="com/**">
       <fileset file="${libfile}"/>
       <manifest>
-        <attribute name="Crawler-Alias" value="leancog.sfdc"/>
+        <attribute name="Crawler-Alias" value="salesforce.crawler"/>
         <attribute name="Crawler-Class" value="com.leancog.crawl.SfdcCrawlerController"/>
       </manifest>
     </jar>

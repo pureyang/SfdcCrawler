@@ -17,35 +17,41 @@ import com.lucid.spec.NonNegIntStringValidator;
 import com.lucid.utils.StringUtils;
 
 /**
- * Specification for XFileDataSource properties. This specification is
+ * Specification for SfdcDataSource properties. This specification is
  * used to supply default values and determines the validation.
  */
-public class SfdcKnowledgeSpec extends DataSourceSpec {
-  public static final String NUM_DOCS = "num_docs";
+public class SfdcSpec extends DataSourceSpec {
 
+  public static final String SFDC_API_VER = "sfdc_api_ver";
+  public static final String SFDC_API_ENV = "sfdc_api_env";
   public static final String SFDC_LOGIN = "sfdc_login";
   public static final String SFDC_PASSWD = "sfdc_passwd";
-  public static final String SFDC_SEUCURITY_TOKEN = "sfdc_security_token";
-  public SfdcKnowledgeSpec() {
+  public static final String SFDC_SECURITY_TOKEN = "sfdc_security_token";  
+  public SfdcSpec() {
     super(Category.FileSystem.toString());
   }
 
   @Override
   protected void addCrawlerSupportedProperties() {
-    // we require a non-negative integer number (provided as a string or int)
-    addSpecProperty(new SpecProperty(NUM_DOCS,
-            "max number of generated documents", Integer.class,
-            0, new NumDocsValidator(), true));          
+    addSpecProperty(new SpecProperty(SFDC_API_VER,
+            "Salesforce API Version", String.class,
+            "26.0", Validator.NOT_BLANK_VALIDATOR, true));
+            
+    addSpecProperty(new SpecProperty(SFDC_API_ENV,
+            "Salesforce Environment (test/prod)", String.class,
+            "test", Validator.NOT_BLANK_VALIDATOR, true));
             
     addSpecProperty(new SpecProperty(SFDC_LOGIN,
             "Salesforce API Username", String.class,
             null, Validator.NOT_BLANK_VALIDATOR, true));
+            
     addSpecProperty(new SpecProperty(SFDC_PASSWD,
             "Salesforce API Password", String.class,
-            null, Validator.NOT_BLANK_VALIDATOR, true));   
-    addSpecProperty(new SpecProperty(SFDC_SEUCURITY_TOKEN,
+            null, Validator.NOT_BLANK_VALIDATOR, true));
+             
+    addSpecProperty(new SpecProperty(SFDC_SECURITY_TOKEN,
             "Salesforce API Security Token", String.class,
-            null, Validator.NOT_BLANK_VALIDATOR, true));                           
+            null, Validator.NOT_BLANK_VALIDATOR, true));                 
     // this source supports batch processing options
     addBatchProcessingProperties();
     // this source supports field mapping options
@@ -58,19 +64,4 @@ public class SfdcKnowledgeSpec extends DataSourceSpec {
     addCommitProperties();
   }
 
-  private static class NumDocsValidator extends NonNegIntStringValidator {
-
-    @Override
-    protected List<Error> checkInt(int parseInt, SpecProperty confProp) {
-      List<Error> errors = super.checkInt(parseInt, confProp);
-      if (errors != null && !errors.isEmpty()) {
-        return errors;
-      }
-      if (parseInt < 1) {
-        return Collections.singletonList(
-                new Error(confProp.name, E_INVALID_VALUE, "value must be > 0, was " + parseInt));
-      }
-      return null;
-    }
-  }
 }

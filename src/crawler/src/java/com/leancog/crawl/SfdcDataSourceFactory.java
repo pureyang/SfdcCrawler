@@ -11,7 +11,7 @@ import com.lucid.crawl.DataSourceFactory;
 import com.lucid.crawl.DataSourceFactoryException;
 
 /**
- * SfdcKnowledge data source factory responsible for reporting the list
+ * Sfdc data source factory responsible for reporting the list
  * of supported data source types and for the creation of data source instances
  * from a map of parameters. Most of this happens in {@link DataSourceFactory},
  * here we just need to initialize the list of supported types and their
@@ -22,9 +22,9 @@ public class SfdcDataSourceFactory extends DataSourceFactory {
   public SfdcDataSourceFactory(CrawlerController cc) {
     super(cc);
     // map type names to specifications
-    types.put("sfdcknowledge", new SfdcKnowledgeSpec());
+    types.put("salesforce", new SfdcSpec());
     // map names to implementation classes
-    impls.put("sfdcknowledge", CrawlDataSource.class);
+    impls.put("salesforce", CrawlDataSource.class);
     // everything else (instantiation, validation, etc) is
     // handled by the magic of DataSourceFactory
   }

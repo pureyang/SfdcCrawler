@@ -3,9 +3,9 @@ package com.leancog.crawl;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Date;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 
 import org.apache.solr.common.util.DateUtil;
 import org.slf4j.Logger;
@@ -17,14 +17,28 @@ import com.lucid.crawl.CrawlDataSource;
 import com.lucid.crawl.CrawlState;
 import com.lucid.crawl.CrawlStatus.Counter;
 import com.lucid.crawl.CrawlStatus.JobState;
-import com.lucid.crawl.fakelib.FakeUtil;
 import com.lucid.crawl.io.Content;
 
+import com.sforce.soap.enterprise.Connector;
+import com.sforce.soap.enterprise.DeleteResult;
+import com.sforce.soap.enterprise.EnterpriseConnection;
+import com.sforce.soap.enterprise.Error;
+import com.sforce.soap.enterprise.QueryResult;
+import com.sforce.soap.enterprise.SaveResult;
+import com.sforce.soap.enterprise.sobject.Account;
+import com.sforce.soap.enterprise.sobject.Contact;
+import com.sforce.soap.enterprise.sobject.FAQ__kav;
+import com.sforce.ws.ConnectionException;
+import com.sforce.ws.ConnectorConfig;
+  
 /**
  * A simple crawler that can handle data source types supported by this
  * crawler controller.
  */
 public class SfdcCrawler implements Runnable {
+ 
+
+  
   private static final Logger LOG = LoggerFactory.getLogger(SfdcCrawler.class);
   
   CrawlState state;
@@ -32,6 +46,10 @@ public class SfdcCrawler implements Runnable {
   long maxSize;
   int depth;
   boolean stopped = false;
+
+	private EnterpriseConnection connection;
+  private String USERNAME = null;
+  private String PASSWORD = null;
   
   public SfdcCrawler(CrawlState state) {
     this.state = state;
@@ -43,6 +61,9 @@ public class SfdcCrawler implements Runnable {
     if (depth < 1) {
       depth = Integer.MAX_VALUE;
     }
+    // set sfdc API username and passwd
+		USERNAME = ds.getString(SfdcSpec.SFDC_LOGIN);
+    PASSWORD = ds.getString(SfdcSpec.SFDC_PASSWD)+ds.getString(SfdcSpec.SFDC_SECURITY_TOKEN);
   }
 
   /*
@@ -73,34 +94,105 @@ public class SfdcCrawler implements Runnable {
       if (stopped) {
         state.getStatus().end(JobState.STOPPED);
       } else {
-        state.getStatus().end(JobState.FINISHED);        
+        state.getStatus().end(JobState.FINISHED);
       }
     }
   }
   
   public synchronized void stop() {
+  	// lets clear the connection if crawler is stopped
+    try {
+      connection.logout();
+    } catch (ConnectionException e1) {
+    	StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e1.printStackTrace(pw);
+      LOG.info(sw.toString());
+    }    
     stopped = true;
+    
   }
   
   private void runSalesforceCrawl() throws Exception {
     LOG.info("Sfdc crawler started");
     
-	// just put something into the index
-    StringBuilder sb = new StringBuilder();
-	Content c = new Content();
-    c.setKey("sfdc");
-    sb.setLength(0);
-    // insert the time that the crawler was run
-    DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
-	Date date = new Date();
-    sb.append(" SFDC Crawler was here " + dateFormat.format(date));
-    c.setData(sb.toString().getBytes());
-    c.addMetadata("Content-Type", "text/plain");
-    c.addMetadata("title", "SFDC Crawler");
-    state.getProcessor().process(c);
+   ConnectorConfig config = new ConnectorConfig();
+    config.setUsername(USERNAME);
+    config.setPassword(PASSWORD);
+    config.setTraceMessage(true);
+    
+    try {
+      connection = Connector.newConnection(config);
+      
+      // display some current settings
+      LOG.info("Salesforce Crawler:Auth EndPoint: "+config.getAuthEndpoint());
+      LOG.info("Salesforce Crawler:Service EndPoint: "+config.getServiceEndpoint());
+      LOG.info("Salesforce Crawler:Username: "+config.getUsername());
+      LOG.info("Salesforce Crawler:SessionId: "+config.getSessionId());
+      
+      queryIndexFAQ(1000, "FAQ__kav");
+      
+    } catch (ConnectionException e1) {
+    	StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e1.printStackTrace(pw);
+      LOG.info(sw.toString());
+    }    
   }
+  
+  // 
+  private void queryIndexFAQ(int limit, String sObject) {
+    
+    LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObject+"...");
+    
+    int indexCt = 0;
+    
+    try {  
+      QueryResult queryResults = connection.query("SELECT KnowledgeArticleId, Title, VersionNumber, Answer__c, LastModifiedDate " +
+      		"FROM "+sObject+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit);
+      if (queryResults.getSize() > 0) {
+        for (int i=0;i<queryResults.getRecords().length;i++) {
+          // cast the SObject to a strongly-typed FAQ
+          FAQ__kav faq = (FAQ__kav)queryResults.getRecords()[i];
+          
+          
+          LOG.info("KnowledgeArticleId: " + faq.getKnowledgeArticleId() + " - Title: "+faq.getTitle()+
+    	    " - LastModifiedDate: "+faq.getLastModifiedDate().getTime().toString()
+  	      + " - VersionNumber: "+faq.getVersionNumber()
+	        + " - Answer: "+faq.getAnswer__c());
+        
+        	if (notEmpty(faq.getTitle()) &&
+        		notEmpty(faq.getKnowledgeArticleId())) {
+						// put the FAQ into the index after a basic sanity check
+				    StringBuilder sb = new StringBuilder();
+						Content c = new Content();
+				    c.setKey(faq.getKnowledgeArticleId());
+				    sb.setLength(0);
+			    	sb.append(faq.getAnswer__c());
+			  	  c.setData(sb.toString().getBytes());
+				    c.addMetadata("Content-Type", "text/html");
+				    c.addMetadata("title", faq.getTitle());
+				    state.getProcessor().process(c);
+				    indexCt++;
+			    }
+        }
+      }
+      
+    } catch (Exception e) {
+    	StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+      LOG.info(sw.toString());
+    }
+    LOG.info("Salesforce Crawler: Indexing "+indexCt+" "+sObject+" objects.");
+  }  
 
-  // keeping these methods around in case we end up downloading attachments from sfdc during crawl
+	// TODO move this to a leancog library
+	public static boolean notEmpty(String s) {
+		return (s != null && s.length() > 0);
+	}
+  // keeping these methods around in case we end up downloading attachments from 
+  // sfdc during crawl
   /*
    * Traverse the file system hierarchy up to a depth.
    *
@@ -154,9 +246,6 @@ public class SfdcCrawler implements Runnable {
       }
       c.addMetadata("Last-Modified", sb.toString());
       c.addMetadata("Content-Length", String.valueOf(f.length()));
-      // Note: FakeUtil just illustrates that nested jars are available from
-      // the crawler's classloader
-      c.addMetadata("Random-Value", FakeUtil.randomValue());
       byte[] data = new byte[(int)f.length()];
       // for simplicity we don't check for IO errors...
       FileInputStream fis = new FileInputStream(f);

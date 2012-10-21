@@ -1,1 +1,6 @@
-*.class
+/build
+.DS_Store
+.p4ignore
+.DS_Store
+
+src/crawler/src/lib-src/com/.DS_Store

@@ -11,7 +11,6 @@ import com.lucid.crawl.CrawlState;
 import com.lucid.crawl.CrawlerController;
 import com.lucid.crawl.DataSourceFactory;
 import com.lucid.crawl.batch.BatchManager;
-import com.lucid.crawl.fakelib.FakeUtil;
 
 public class SfdcCrawlerController extends CrawlerController {
   private static final Logger LOG = LoggerFactory.getLogger(SfdcCrawlerController.class);
@@ -26,8 +25,6 @@ public class SfdcCrawlerController extends CrawlerController {
   public SfdcCrawlerController() {
     batchMgr = BatchManager.create(CC_EX, this.getClass().getClassLoader());
     dsFactory = new SfdcDataSourceFactory(this);
-    uuid = FakeUtil.randomValue();
-    LOG.info("uuid=" +uuid);
   }
   
   @Override

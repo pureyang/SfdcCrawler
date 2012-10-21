@@ -1,8 +1,8 @@
 Salesforce Crawler
 Created by LeanCog
 
-* crawler for Knowledge Articles on Salesforce
-* configure using env (test or production), username, password and security token
+* Crawls Salesforce Knowledge Articles
+* configure using Salesforce API sername, password and security token
 
 Build and create Jar using ant
 e.g.

@@ -25,9 +25,8 @@ import com.sforce.soap.enterprise.EnterpriseConnection;
 import com.sforce.soap.enterprise.Error;
 import com.sforce.soap.enterprise.QueryResult;
 import com.sforce.soap.enterprise.SaveResult;
-import com.sforce.soap.enterprise.sobject.Account;
-import com.sforce.soap.enterprise.sobject.Contact;
 import com.sforce.soap.enterprise.sobject.FAQ__kav;
+import com.sforce.soap.enterprise.sobject.Collateral__kav;
 import com.sforce.ws.ConnectionException;
 import com.sforce.ws.ConnectorConfig;
   
@@ -116,7 +115,7 @@ public class SfdcCrawler implements Runnable {
   private void runSalesforceCrawl() throws Exception {
     LOG.info("Sfdc crawler started");
     
-   ConnectorConfig config = new ConnectorConfig();
+   	ConnectorConfig config = new ConnectorConfig();
     config.setUsername(USERNAME);
     config.setPassword(PASSWORD);
     config.setTraceMessage(true);
@@ -130,7 +129,10 @@ public class SfdcCrawler implements Runnable {
       LOG.info("Salesforce Crawler:Username: "+config.getUsername());
       LOG.info("Salesforce Crawler:SessionId: "+config.getSessionId());
       
+      // TODO refactor the below into external lib
+      // TODO how do we dynamically figure out the type of Knowledge Articles?
       queryIndexFAQ(1000, "FAQ__kav");
+      queryIndexCollateral(1000, "Collateral__kav");
       
     } catch (ConnectionException e1) {
     	StringWriter sw = new StringWriter();
@@ -140,41 +142,31 @@ public class SfdcCrawler implements Runnable {
     }    
   }
   
-  // 
-  private void queryIndexFAQ(int limit, String sObject) {
+  // TODO refactor this into a factory pattern based on article type
+  private void queryIndexFAQ(int limit, String sObjectName) {
     
-    LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObject+"...");
+    LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObjectName+"...");
     
     int indexCt = 0;
     
     try {  
+    	// TODO how to get this list of SObject fields dynamically?	    
       QueryResult queryResults = connection.query("SELECT KnowledgeArticleId, Title, VersionNumber, Answer__c, LastModifiedDate " +
-      		"FROM "+sObject+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit);
+      		"FROM "+sObjectName+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit);
       if (queryResults.getSize() > 0) {
         for (int i=0;i<queryResults.getRecords().length;i++) {
           // cast the SObject to a strongly-typed FAQ
           FAQ__kav faq = (FAQ__kav)queryResults.getRecords()[i];
           
           
-          LOG.info("KnowledgeArticleId: " + faq.getKnowledgeArticleId() + " - Title: "+faq.getTitle()+
+          LOG.debug("KnowledgeArticleId: " + faq.getKnowledgeArticleId() + " - Title: "+faq.getTitle()+
     	    " - LastModifiedDate: "+faq.getLastModifiedDate().getTime().toString()
   	      + " - VersionNumber: "+faq.getVersionNumber()
 	        + " - Answer: "+faq.getAnswer__c());
-        
-        	if (notEmpty(faq.getTitle()) &&
-        		notEmpty(faq.getKnowledgeArticleId())) {
-						// put the FAQ into the index after a basic sanity check
-				    StringBuilder sb = new StringBuilder();
-						Content c = new Content();
-				    c.setKey(faq.getKnowledgeArticleId());
-				    sb.setLength(0);
-			    	sb.append(faq.getAnswer__c());
-			  	  c.setData(sb.toString().getBytes());
-				    c.addMetadata("Content-Type", "text/html");
-				    c.addMetadata("title", faq.getTitle());
-				    state.getProcessor().process(c);
-				    indexCt++;
-			    }
+        	
+        	if (indexSObj(faq.getKnowledgeArticleId(), faq.getTitle(), faq.getAnswer__c())) {
+	        	indexCt++;
+	        }
         }
       }
       
@@ -184,9 +176,75 @@ public class SfdcCrawler implements Runnable {
 			e.printStackTrace(pw);
       LOG.info(sw.toString());
     }
-    LOG.info("Salesforce Crawler: Indexing "+indexCt+" "+sObject+" objects.");
+    LOG.info("Salesforce Crawler: Indexing "+indexCt+" "+sObjectName+" objects.");
   }  
-
+  
+  // TODO refactor this into a factory pattern based on article type
+  private void queryIndexCollateral(int limit, String sObjectName) {
+    
+    LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObjectName+"...");
+    
+    int indexCt = 0;
+    
+    try {  
+    	// TODO how to get this list of SObject fields dynamically?
+      QueryResult queryResults = connection.query("SELECT KnowledgeArticleId, Title, VersionNumber, Summary, LastModifiedDate " +
+      		"FROM "+sObjectName+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit);
+      if (queryResults.getSize() > 0) {
+        for (int i=0;i<queryResults.getRecords().length;i++) {
+          // cast the SObject to a strongly-typed Collateral
+          // TODO this is the key to refactoring into a factory
+          Collateral__kav col = (Collateral__kav)queryResults.getRecords()[i];
+          
+          
+          LOG.debug("KnowledgeArticleId: " + col.getKnowledgeArticleId() + " - Title: "+col.getTitle()+
+    	    " - LastModifiedDate: "+col.getLastModifiedDate().getTime().toString()
+  	      + " - VersionNumber: "+col.getVersionNumber()
+	        + " - Summary: "+col.getSummary());
+        	
+        	if (indexSObj(col.getKnowledgeArticleId(), col.getTitle(), col.getSummary())) {
+	        	indexCt++;
+	        }
+        }
+      }
+      
+    } catch (Exception e) {
+    	StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+      LOG.error(sw.toString());
+    }
+    LOG.info("Salesforce Crawler: Indexing "+indexCt+" "+sObjectName+" objects.");
+  } 
+  
+  // TODO refactor this into a factory pattern based on articleType
+  // TODO what additional meta data should be set?
+  // TODO how to attach attachments
+  private boolean indexSObj(String articleId, String title, String body) { 
+  	try {
+				if (notEmpty(articleId) &&
+				notEmpty(title)) {
+				// put the FAQ into the index after a basic sanity check
+				StringBuilder sb = new StringBuilder();
+				Content c = new Content();
+				c.setKey(articleId);
+				sb.setLength(0);
+				sb.append(body);
+				c.setData(sb.toString().getBytes());
+				c.addMetadata("Content-Type", "text/html");
+				c.addMetadata("title", title);
+				state.getProcessor().process(c);
+				return true;
+			}
+    } catch (Exception e) {
+    	StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+      LOG.warn(sw.toString());
+    }
+		return false;
+	}
+	
 	// TODO move this to a leancog library
 	public static boolean notEmpty(String s) {
 		return (s != null && s.length() > 0);

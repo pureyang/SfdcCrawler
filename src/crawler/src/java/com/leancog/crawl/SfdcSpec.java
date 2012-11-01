@@ -1,18 +1,10 @@
 package com.leancog.crawl;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-
-import com.lucid.admin.collection.CollectionManager;
+import com.lucid.Defaults.Group;
 import com.lucid.admin.collection.datasource.DataSource;
-import com.lucid.api.Error;
-import com.lucid.crawl.CrawlerUtils;
 import com.lucid.crawl.DataSourceSpec;
 import com.lucid.spec.SpecProperty;
 import com.lucid.spec.Validator;
-import com.lucid.spec.NonNegIntStringValidator;
-import com.lucid.utils.StringUtils;
 
 /**
  * Specification for SfdcDataSource properties. This specification is
@@ -20,8 +12,7 @@ import com.lucid.utils.StringUtils;
  */
 public class SfdcSpec extends DataSourceSpec {
   public static final String SFDC_LOGIN = "sfdc_login";
-  public static final String SFDC_PASSWD = "sfdc_passwd";
-  public static final String SFDC_SECURITY_TOKEN = "sfdc_security_token";  
+  
   public SfdcSpec() {
     super(Category.FileSystem.toString());
   }
@@ -29,16 +20,20 @@ public class SfdcSpec extends DataSourceSpec {
   @Override
   protected void addCrawlerSupportedProperties() {
     addSpecProperty(new SpecProperty(SFDC_LOGIN,
-            "Salesforce API Username", String.class,
-            null, Validator.NOT_BLANK_VALIDATOR, true));
-            
-    addSpecProperty(new SpecProperty(SFDC_PASSWD,
-            "Salesforce API Password", String.class,
-            null, Validator.NOT_BLANK_VALIDATOR, true));
-             
-    addSpecProperty(new SpecProperty(SFDC_SECURITY_TOKEN,
-            "Salesforce API Security Token", String.class,
-            null, Validator.NOT_BLANK_VALIDATOR, true));
+            "Salesforce API Username", 
+            String.class,
+            null,
+            Validator.NOT_BLANK_VALIDATOR, 
+            true));
+  
+    // Salesforce API Password + Security Token
+    addSpecProperty(new SpecProperty(DataSource.PASSWORD,
+            DS_+DataSource.PASSWORD, 
+            String.class,
+            DataSource.defaults.getString(Group.datasource, DataSource.PASSWORD),
+            Validator.NOT_NULL_VALIDATOR, 
+            true));
+
     // this source supports batch processing options
     addBatchProcessingProperties();
     // this source supports field mapping options

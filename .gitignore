@@ -1,3 +1,5 @@
 /src/crawler/build
 .DS_Store
 .p4ignore
+
+src/sfdc-crawler.jar

@@ -1,13 +1,8 @@
 package com.leancog.crawl;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.util.Date;
 
-import org.apache.solr.common.util.DateUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,18 +10,13 @@ import com.lucid.Defaults.Group;
 import com.lucid.admin.collection.datasource.DataSource;
 import com.lucid.crawl.CrawlDataSource;
 import com.lucid.crawl.CrawlState;
-import com.lucid.crawl.CrawlStatus.Counter;
 import com.lucid.crawl.CrawlStatus.JobState;
 import com.lucid.crawl.io.Content;
-
 import com.sforce.soap.enterprise.Connector;
-import com.sforce.soap.enterprise.DeleteResult;
 import com.sforce.soap.enterprise.EnterpriseConnection;
-import com.sforce.soap.enterprise.Error;
 import com.sforce.soap.enterprise.QueryResult;
-import com.sforce.soap.enterprise.SaveResult;
-import com.sforce.soap.enterprise.sobject.FAQ__kav;
 import com.sforce.soap.enterprise.sobject.Collateral__kav;
+import com.sforce.soap.enterprise.sobject.FAQ__kav;
 import com.sforce.ws.ConnectionException;
 import com.sforce.ws.ConnectorConfig;
   
@@ -61,8 +51,9 @@ public class SfdcCrawler implements Runnable {
       depth = Integer.MAX_VALUE;
     }
     // set sfdc API username and passwd
-		USERNAME = ds.getString(SfdcSpec.SFDC_LOGIN);
-    PASSWORD = ds.getString(SfdcSpec.SFDC_PASSWD)+ds.getString(SfdcSpec.SFDC_SECURITY_TOKEN);
+	USERNAME = ds.getString(SfdcSpec.SFDC_LOGIN);
+	PASSWORD = ds.getString(DataSource.PASSWORD);
+    //PASSWORD = ds.getString(SfdcSpec.SFDC_PASSWD)+ds.getString(SfdcSpec.SFDC_SECURITY_TOKEN);
   }
 
   /*
@@ -129,8 +120,7 @@ public class SfdcCrawler implements Runnable {
       LOG.info("Salesforce Crawler:Username: "+config.getUsername());
       LOG.info("Salesforce Crawler:SessionId: "+config.getSessionId());
       
-      // TODO refactor the below into external lib
-      // TODO how do we dynamically figure out the type of Knowledge Articles?
+      // TODO refactor the below with call to sfdc custom setting via APEX API call
       queryIndexFAQ(1000, "FAQ__kav");
       queryIndexCollateral(1000, "Collateral__kav");
       

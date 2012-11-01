@@ -7,7 +7,6 @@ import com.lucid.admin.collection.datasource.DataSource;
 import com.lucid.admin.collection.datasource.DataSourceId;
 import com.lucid.crawl.CrawlId;
 import com.lucid.crawl.CrawlProcessor;
-import com.lucid.crawl.CrawlState;
 import com.lucid.crawl.CrawlerController;
 import com.lucid.crawl.DataSourceFactory;
 import com.lucid.crawl.batch.BatchManager;

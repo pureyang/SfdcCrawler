@@ -1,5 +1,7 @@
 package com.leancog.crawl;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
@@ -9,6 +11,11 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
 
+import javax.xml.bind.DatatypeConverter;
+
+import org.apache.tika.Tika;
+import org.apache.tika.exception.TikaException;
+import org.apache.tika.metadata.Metadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -159,7 +166,7 @@ public class SfdcCrawler implements Runnable {
   }
   
   private void runSalesforceCrawl() throws Exception {
-    LOG.info("Sfdc crawler started");
+    LOG.info("Salesforce crawler started");
     
    	ConnectorConfig config = new ConnectorConfig();
     config.setUsername(USERNAME);
@@ -177,20 +184,21 @@ public class SfdcCrawler implements Runnable {
       // TODO: faq, collateral sObjects should be queried from sfdc
       updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields);
       updateIndex(SFDC_FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields);
-      
-      removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav");
-      removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav");
-      
-    } catch (ConnectionException e1) {
-    	StringWriter sw = new StringWriter();
-			PrintWriter pw = new PrintWriter(sw);
-			e1.printStackTrace(pw);
-      LOG.info(sw.toString());
+      if (lastCrawl != null) {
+    	  // only look to remove articles if this isn't first time crawling
+    	  removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav");
+    	  removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav");
+    	  LOG.info("Salesforce crawler update since last crawl="+lastCrawl.toString());
+      } else {
+    	  LOG.info("Salesforce crawler INITIAL LOAD");
+      }
+    } catch (ConnectionException ce) {
+    	handleException(ce);
     }    
   }
   
   /**
-   * 
+   * core update handler
    * @param limit - query limit
    * @param sObjectName - sObject being queried
    * @param metaFields - flat sObject definitions
@@ -205,12 +213,11 @@ public class SfdcCrawler implements Runnable {
   	HashMap<String, String> result = new HashMap<String,String>();
     try {  	    
       QueryResult queryResults = 
-    		connection.query(buildSOQLQuery(sObjectName, limit, metaFields, childMetadataFields));
+    		connection.query(buildUpdateQuery(sObjectName, limit, metaFields, childMetadataFields));
       if (queryResults.getSize() > 0) {
 		  for (SObject s : queryResults.getRecords()) {
-		    // TODO: post-process attachment using tika
-			// lets not put the raw attachment into result if we can avoid it.
-			  
+			// add to result attachment body if present
+			addAttachmentBody(s, sObjectName, result);
 			
 			// index article type which is sObject type
 			metaFields.add("type");
@@ -231,15 +238,20 @@ public class SfdcCrawler implements Runnable {
 		  }
       }
       
-    } catch (Exception e) {
-    	StringWriter sw = new StringWriter();
-			PrintWriter pw = new PrintWriter(sw);
-			e.printStackTrace(pw);
-      LOG.info(sw.toString());
+    } catch (ConnectionException ce) {
+    	handleException(ce);
     }
     LOG.info("Salesforce Crawler: Indexed "+indexCt+" "+sObjectName+" objects.");
   }  
   
+  /**
+   * finds and deletes from index knowledgeArticles which should be removed
+   * 
+   * +articles that have been archived
+   * 
+   * @param limit
+   * @param sObjectName
+   */
   private void removeIndex(int limit, String sObjectName) {
 	    
 	    LOG.info("Salesforce Crawler: Querying for the "+limit+" archived "+sObjectName+"...");
@@ -275,7 +287,7 @@ public class SfdcCrawler implements Runnable {
 	  }  
   
   /**
-   * 
+   * takes result hash and indexes field/values into solr
    * @param values
    * @return
    */
@@ -290,7 +302,7 @@ public class SfdcCrawler implements Runnable {
 	try {
 		if (notEmpty(articleId) && notEmpty(title)) {
 			// index sObject
-			// default fields
+			// default fields every index must have
 			StringBuilder sb = new StringBuilder();
 			Content c = new Content();
 			c.setKey(articleId);
@@ -313,14 +325,16 @@ public class SfdcCrawler implements Runnable {
 			return true;
 		}
     } catch (Exception e) {
-    	StringWriter sw = new StringWriter();
-		PrintWriter pw = new PrintWriter(sw);
-		e.printStackTrace(pw);
-		LOG.warn(sw.toString());
+    	handleException(e);
     }
 	return false;
   }
 
+  /**
+   * adds into result hash fields from sub-sObjects like Category name/value
+   * @param x
+   * @param result
+   */
   private static void buildChildResult(XmlObject x, HashMap<String, String> result) {
 	  if (x.getChild("DataCategoryGroupName") != null && 
 			  x.getChild("DataCategoryGroupName").getValue() != null &&
@@ -344,13 +358,26 @@ public class SfdcCrawler implements Runnable {
 	  }
   }
   
+  /**
+   * adds into result hash top-level sObject fields
+   * @param x
+   * @param result
+   */
   private static void buildResult(XmlObject x, HashMap<String, String> result) {
 	  if (x != null && x.getValue() != null) {
 		  result.put(x.getName().getLocalPart(), x.getValue().toString());
 	  }
   }
-  public static String buildSOQLQuery(String sObjectName, int limit, ArrayList<String> metaFields, ArrayList<String> childMetadataFields) {  
-
+  
+  /**
+   * builds SOQL statement from designated sObject and its fields and sub-fields
+   * 
+   * @param sObjectName
+   * @paam limit
+   * @param metaFields - top level fields of sObject
+   * @param childMetadataFields - sub fields of sObject
+   */
+  public static String buildUpdateQuery(String sObjectName, int limit, ArrayList<String> metaFields, ArrayList<String> childMetadataFields) {  
 	
   	String result = "SELECT ";
 	result += implodeArray(metaFields, ",");
@@ -363,7 +390,77 @@ public class SfdcCrawler implements Runnable {
 	LOG.info("Salesforce Crawler: SOQL= "+result);
 	return result;
   }
+  
+  /**
+   * Determines if located sObject has attachments, queries sfdc for body, tika parses body
+   * finally put processed text into result hash
+   * @param sObj
+   * @param sObjectName
+   * @param result
+   */
+  private void addAttachmentBody(SObject sObj, String sObjectName, HashMap<String, String>result) {
+		if (sObj.hasChildren()) {
+			XmlObject len = sObj.getChild("Attachment__Length__s");
+			if (len != null && len.getValue() != null) {
+			String attachLenString = sObj.getChild("Attachment__Length__s").getValue().toString();
+			float attachLength = Float.parseFloat(attachLenString);
+			
+			String articleId = sObj.getChild("KnowledgeArticleId").getValue().toString();
+			if (notEmpty(articleId) && attachLength > 0) {
+				String contentType = sObj.getChild("Attachment__ContentType__s").toString();
+				// found a legit attachment file, query sfdc to get body
+				try {
+				QueryResult queryResults = connection.query(buildAttachmentQuery(sObjectName, articleId));
+				if (queryResults.getSize() > 0) {
+					for (SObject s : queryResults.getRecords()) {
+						if (s.hasChildren()) {
 
+							// run through tika
+							Tika tika = new Tika();
+					        Metadata metadata = new Metadata();
+					        metadata.set(Metadata.CONTENT_TYPE, contentType);
+							String body = s.getChild("Attachment__Body__s").getValue().toString();
+					        
+					        byte[] bits = DatatypeConverter.parseBase64Binary(body);
+					        
+					        ByteArrayInputStream bis = new ByteArrayInputStream(bits);
+					        String attachString = tika.parseToString(bis, metadata);
+							LOG.info("Salesforce Crawler: articleId="+articleId+" found attachment body of type="+contentType);							
+							// add body into result
+							result.put("Attachment__Body_content", attachString);
+						}
+					}
+				}
+				} catch (ConnectionException ce) {
+					handleException(ce);
+				} catch (IOException ie) {
+					handleException(ie);
+				} catch (TikaException te) {
+					handleException(te);
+				}
+		}
+		}
+		}
+  }
+  
+  /**
+   * generates SOQL statement to just fetch attachment body
+   * @param sObjectName
+   * @param articleId
+   * @return
+   */
+  private static String buildAttachmentQuery(String sObjectName, String articleId) {
+		String q = "SELECT Attachment__Body__s FROM "+sObjectName+
+				" WHERE KnowledgeArticleId='"+articleId+"'"+
+				" AND PublishStatus = 'Online'";
+		LOG.info("Salesforce Crawler: SOQL= "+q);
+		return q;
+  }
+
+  /**
+   * genereates SOQL substatemnt when quering since last modified date
+   * @return
+   */
   private static String buildLastCrawlDateQuery() {
 	  String result = "";
 	  if (lastCrawl != null) {
@@ -394,71 +491,11 @@ public class SfdcCrawler implements Runnable {
 	
 	return output;
 	}
-
-  // keeping these methods around in case we end up downloading attachments from 
-  // sfdc during crawl
-  /*
-   * Traverse the file system hierarchy up to a depth.
-   *
-  private void traverse(File f, int curDepth) {
-    if (curDepth > depth || stopped) {
-      return;
-    }
-    if (f.isDirectory()) {
-      File[] files = f.listFiles();
-      for (File file : files) {
-        traverse(file, curDepth + 1);
-      }
-    } else {
-      if (!f.canRead()) {
-        state.getStatus().incrementCounter(Counter.Failed);
-        return;
-      }
-      // retrieve the content
-      Content c = getContent(f);
-      if (c == null) {
-        state.getStatus().incrementCounter(Counter.Failed);
-        return;
-      }
-      // this should increment counters as needed
-      try {
-        state.getProcessor().process(c);
-      } catch (Exception e) {
-        state.getStatus().incrementCounter(Counter.Failed);
-      }
-    }
-  } */
-  
-  /*
-   * Retrieve the content of the file + some repository metadata
-   *
-  private Content getContent(File f) {
-    if (f.length() > maxSize) {
-      return null;
-    }
-    try {
-      Content c = new Content();
-      // set this to a unique identifier
-      c.setKey(f.getAbsolutePath());
-      StringBuilder sb = new StringBuilder();
-      Date date = new Date(f.lastModified());
-      try {
-        DateUtil.formatDate(date, null, sb);
-      } catch (IOException ioe) {
-        sb.setLength(0);
-        sb.append(date.toString());
-      }
-      c.addMetadata("Last-Modified", sb.toString());
-      c.addMetadata("Content-Length", String.valueOf(f.length()));
-      byte[] data = new byte[(int)f.length()];
-      // for simplicity we don't check for IO errors...
-      FileInputStream fis = new FileInputStream(f);
-      fis.read(data);
-      fis.close();
-      c.setData(data);
-      return c;
-    } catch (Exception e) {
-      return null;
-    }
-  }  */
+	
+	private static void handleException(Exception e) {
+		StringWriter sw = new StringWriter();
+		PrintWriter pw = new PrintWriter(sw);
+		e.printStackTrace(pw);
+		LOG.debug(sw.toString());
+	}
 }

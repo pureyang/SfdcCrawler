@@ -1,14 +1,8 @@
 package com.leancog.crawl;
 
-import java.util.Map;
-
-import com.lucid.admin.collection.datasource.DataSource;
-import com.lucid.admin.collection.datasource.FieldMapping;
-import com.lucid.admin.collection.datasource.FieldMappingUtil;
 import com.lucid.crawl.CrawlDataSource;
 import com.lucid.crawl.CrawlerController;
 import com.lucid.crawl.DataSourceFactory;
-import com.lucid.crawl.DataSourceFactoryException;
 
 /**
  * Sfdc data source factory responsible for reporting the list
@@ -33,7 +27,9 @@ public class SfdcDataSourceFactory extends DataSourceFactory {
    * Override this method to perform some other data source initialization.
    * Here we initialize the field mapping properties with some default mappings.
    */
+  /*
   @Override
+  
   public DataSource create(Map<String, Object> m, String collection)
           throws DataSourceFactoryException {
     // TODO Auto-generated method stub
@@ -47,5 +43,6 @@ public class SfdcDataSourceFactory extends DataSourceFactory {
     FieldMappingUtil.addTikaFieldMapping(ds.getFieldMapping(), ds.getCollection(), false);
     return ds;
   }
+  */
 
 }

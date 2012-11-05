@@ -1,5 +1,6 @@
 package com.leancog.crawl;
 
+import com.leancog.crawl.SfdcSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

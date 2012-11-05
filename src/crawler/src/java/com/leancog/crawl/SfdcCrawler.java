@@ -1,7 +1,11 @@
 package com.leancog.crawl;
 
+import com.leancog.crawl.SfdcSpec;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map.Entry;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,13 +16,13 @@ import com.lucid.crawl.CrawlDataSource;
 import com.lucid.crawl.CrawlState;
 import com.lucid.crawl.CrawlStatus.JobState;
 import com.lucid.crawl.io.Content;
-import com.sforce.soap.enterprise.Connector;
-import com.sforce.soap.enterprise.EnterpriseConnection;
-import com.sforce.soap.enterprise.QueryResult;
-import com.sforce.soap.enterprise.sobject.Collateral__kav;
-import com.sforce.soap.enterprise.sobject.FAQ__kav;
+import com.sforce.soap.partner.Connector;
+import com.sforce.soap.partner.PartnerConnection;
+import com.sforce.soap.partner.QueryResult;
+import com.sforce.soap.partner.sobject.SObject;
 import com.sforce.ws.ConnectionException;
 import com.sforce.ws.ConnectorConfig;
+import com.sforce.ws.bind.XmlObject;
   
 /**
  * A simple crawler that can handle data source types supported by this
@@ -26,8 +30,6 @@ import com.sforce.ws.ConnectorConfig;
  */
 public class SfdcCrawler implements Runnable {
  
-
-  
   private static final Logger LOG = LoggerFactory.getLogger(SfdcCrawler.class);
   
   CrawlState state;
@@ -36,7 +38,7 @@ public class SfdcCrawler implements Runnable {
   int depth;
   boolean stopped = false;
 
-	private EnterpriseConnection connection;
+  private PartnerConnection connection;
   private String USERNAME = null;
   private String PASSWORD = null;
   
@@ -122,7 +124,8 @@ public class SfdcCrawler implements Runnable {
       
       // TODO refactor the below with call to sfdc custom setting via APEX API call
       queryIndexFAQ(1000, "FAQ__kav");
-      queryIndexCollateral(1000, "Collateral__kav");
+      // using partner wsdl only on faq for now
+      //queryIndexCollateral(1000, "Collateral__kav");
       
     } catch (ConnectionException e1) {
     	StringWriter sw = new StringWriter();
@@ -139,25 +142,55 @@ public class SfdcCrawler implements Runnable {
     
     int indexCt = 0;
     
+  	String[] faqFields = 
+	  	{"KnowledgeArticleId",
+	  	"Title",
+	  	"UrlName",
+	  	"Answer__c",
+	  	"LastModifiedDate",
+	  	"FirstPublishedDate",
+	  	"Question__c",
+	  	"LastModifiedDate",
+	  	"LastPublishedDate",
+	  	"CreatedDate",
+	  	"Summary",
+	  	"SystemModstamp",
+	  	"Title",
+	  	"UrlName",
+	  	"Attachment__Body__s",
+	  	"Attachment__ContentType__s",
+	  	"Attachment__Length__s",
+	  	"Attachment__Name__s",
+	  	"type"};
+  	
+  	String[] dataCategorySelectionsFields = 
+	  	{"DataCategoryGroupName",
+	  	"DataCategoryName"};    
+  	HashMap<String, String> result = new HashMap<String,String>();
     try {  
     	// TODO how to get this list of SObject fields dynamically?	    
-      QueryResult queryResults = connection.query("SELECT KnowledgeArticleId, Title, VersionNumber, Answer__c, LastModifiedDate " +
-      		"FROM "+sObjectName+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit);
+      QueryResult queryResults = 
+    		connection.query("SELECT Answer__c, ArchivedDate, Attachment__Body__s, Attachment__ContentType__s, Attachment__Length__s, Attachment__Name__s, CreatedDate, FirstPublishedDate, IsDeleted, KnowledgeArticleId, LastModifiedDate, LastPublishedDate, Question__c, Summary, Title, UrlName," +
+    				"(SELECT DataCategoryGroupName,DataCategoryName FROM DataCategorySelections)" +
+    		 "FROM "+sObjectName+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit);
       if (queryResults.getSize() > 0) {
-        for (int i=0;i<queryResults.getRecords().length;i++) {
-          // cast the SObject to a strongly-typed FAQ
-          FAQ__kav faq = (FAQ__kav)queryResults.getRecords()[i];
-          
-          
-          LOG.debug("KnowledgeArticleId: " + faq.getKnowledgeArticleId() + " - Title: "+faq.getTitle()+
-    	    " - LastModifiedDate: "+faq.getLastModifiedDate().getTime().toString()
-  	      + " - VersionNumber: "+faq.getVersionNumber()
-	        + " - Answer: "+faq.getAnswer__c());
-        	
-        	if (indexSObj(faq.getKnowledgeArticleId(), faq.getTitle(), faq.getAnswer__c())) {
-	        	indexCt++;
-	        }
-        }
+		  for (SObject s : queryResults.getRecords()) {
+			
+
+			// get fields that are flat
+			for (int i=0; i<faqFields.length; i++) {
+				buildResult(s.getChild(faqFields[i]), result);
+			}
+			// get fields that contain n elements
+			XmlObject categories = s.getChild("DataCategorySelections");
+			if (categories.hasChildren()) {	  
+				buildChildResult(categories, result);
+			}
+			
+			if (indexSObj(result)) {
+				indexCt++;
+			}
+		  }
       }
       
     } catch (Exception e) {
@@ -169,76 +202,205 @@ public class SfdcCrawler implements Runnable {
     LOG.info("Salesforce Crawler: Indexing "+indexCt+" "+sObjectName+" objects.");
   }  
   
-  // TODO refactor this into a factory pattern based on article type
-  private void queryIndexCollateral(int limit, String sObjectName) {
-    
-    LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObjectName+"...");
-    
-    int indexCt = 0;
-    
-    try {  
-    	// TODO how to get this list of SObject fields dynamically?
-      QueryResult queryResults = connection.query("SELECT KnowledgeArticleId, Title, VersionNumber, Summary, LastModifiedDate " +
-      		"FROM "+sObjectName+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit);
-      if (queryResults.getSize() > 0) {
-        for (int i=0;i<queryResults.getRecords().length;i++) {
-          // cast the SObject to a strongly-typed Collateral
-          // TODO this is the key to refactoring into a factory
-          Collateral__kav col = (Collateral__kav)queryResults.getRecords()[i];
-          
-          
-          LOG.debug("KnowledgeArticleId: " + col.getKnowledgeArticleId() + " - Title: "+col.getTitle()+
-    	    " - LastModifiedDate: "+col.getLastModifiedDate().getTime().toString()
-  	      + " - VersionNumber: "+col.getVersionNumber()
-	        + " - Summary: "+col.getSummary());
-        	
-        	if (indexSObj(col.getKnowledgeArticleId(), col.getTitle(), col.getSummary())) {
-	        	indexCt++;
-	        }
-        }
-      }
-      
-    } catch (Exception e) {
-    	StringWriter sw = new StringWriter();
-			PrintWriter pw = new PrintWriter(sw);
-			e.printStackTrace(pw);
-      LOG.error(sw.toString());
-    }
-    LOG.info("Salesforce Crawler: Indexing "+indexCt+" "+sObjectName+" objects.");
-  } 
-  
-  // TODO refactor this into a factory pattern based on articleType
-  // TODO what additional meta data should be set?
-  // TODO how to attach attachments
-  private boolean indexSObj(String articleId, String title, String body) { 
-  	try {
-				if (notEmpty(articleId) &&
-				notEmpty(title)) {
-				// put the FAQ into the index after a basic sanity check
-				StringBuilder sb = new StringBuilder();
-				Content c = new Content();
-				c.setKey(articleId);
-				sb.setLength(0);
-				sb.append(body);
-				c.setData(sb.toString().getBytes());
-				c.addMetadata("Content-Type", "text/html");
-				c.addMetadata("title", title);
-				state.getProcessor().process(c);
-				return true;
+  private boolean indexSObj(HashMap<String,String> values) {
+	  String articleId = values.get("KnowledgeArticleId");
+	  String title = values.get("Title");
+	  String answer = values.get("Answer__c");
+	  // build input xml, not sure how to use this yet
+	  String body = "<update><doc>";
+	  for (Entry<String, String> entry : values.entrySet()) {
+		    String key = entry.getKey();
+		    Object value = entry.getValue();
+		    body += "<field name=\""+key+"\">"+value+"</field>";
+	  }
+	  body += "</doc></update>";
+	  // add into Content
+	try {
+		if (notEmpty(articleId) && notEmpty(title)) {
+			// put the FAQ into the index after a basic sanity check
+			StringBuilder sb = new StringBuilder();
+			Content c = new Content();
+			c.setKey(articleId);
+			sb.setLength(0);
+			sb.append(answer);
+			c.setData(sb.toString().getBytes());
+			c.addMetadata("Content-Type", "text/html");
+			for (Entry<String, String> entry : values.entrySet()) {
+				c.addMetadata(entry.getKey(), entry.getValue().toString());
 			}
+			c.addMetadata("title", title);
+			state.getProcessor().process(c);
+			return true;
+		}
     } catch (Exception e) {
     	StringWriter sw = new StringWriter();
-			PrintWriter pw = new PrintWriter(sw);
-			e.printStackTrace(pw);
-      LOG.warn(sw.toString());
+		PrintWriter pw = new PrintWriter(sw);
+		e.printStackTrace(pw);
+		LOG.warn(sw.toString());
     }
-		return false;
-	}
-	
-	// TODO move this to a leancog library
+	return false;
+  }
+  
+
+  private static void buildChildResult(XmlObject x, HashMap<String, String> result) {
+	  if (x.getChild("DataCategoryGroupName") != null && 
+			  x.getChild("DataCategoryGroupName").getValue() != null &&
+			  x.getChild("DataCategoryName") != null && 
+			  x.getChild("DataCategoryName").getValue() != null) {
+		  String key = x.getChild("DataCategoryGroupName").getValue().toString(); 
+		  if (result.containsKey(key)) {
+			  result.put(key, result.get(key)+","+x.getChild("DataCategoryName").getValue().toString());
+		  } else {
+			  result.put(key, x.getChild("DataCategoryName").getValue().toString());  
+		  }		  
+	  }
+	  if (x.hasChildren()) {
+		  Iterator<XmlObject> i = x.getChildren();
+		  while (i.hasNext()) {
+			  XmlObject o = i.next();
+			  if (o.getName().getLocalPart().equals("records")) {
+				  buildChildResult(o, result); 
+			  }
+		  }
+	  }
+  }
+  
+  private static void buildResult(XmlObject x, HashMap<String, String> result) {
+	  if (x != null && x.getValue() != null) {
+		  result.put(x.getName().getLocalPart(), x.getValue().toString());
+	  }
+	  
+  }
+ 
+  public String buildCollateralQuery(String sObjectName, int limit) {
+	// TODO get list of SObject fields dynamically from metadata API	  
+  	String[] collateralFields = 
+	  	{"ArchivedDate",
+	  	"Attachment__Body__s",
+	  	"Attachment__ContentType__s",
+	  	"Attachment__Length__s",
+	  	"Attachment__Name__s",
+	  	"CreatedById",
+	  	"CreatedDate",
+	  	"FirstPublishedDate",
+	  	"IsDeleted",
+	  	"KnowledgeArticleId",
+	  	"LastModifiedById",
+	  	"LastModifiedDate",
+	  	"LastPublishedDate",
+	  	"OwnerId",
+	  	"Summary",
+	  	"SystemModstamp",
+	  	"Title",
+	  	"UrlName",
+	  	"IsVisibleInCsp",
+	  	"IsVisibleInApp",
+	  	"IsVisibleInPrm",
+	  	"IsVisibleInPkb"};
+
+  	String[] dataCategorySelectionsFields = 
+	  	{"DataCategoryGroupName",
+	  	"DataCategoryName"}; 	
+  	
+  	String result = "SELECT ";
+  	result += implodeArray(collateralFields, ",");
+  	result += ", (SELECT "+ implodeArray(dataCategorySelectionsFields, ",") + " FROM DataCategorySelections ) ";
+  	result += " FROM "+sObjectName+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit;
+	return result;
+  }
+  
+	// TODO below this to a leancog library
 	public static boolean notEmpty(String s) {
 		return (s != null && s.length() > 0);
 	}
+	
+	public static String implodeArray(String[] inputArray, String glueString) {
+
+		String output = "";
+
+		if (inputArray.length > 0) {
+			StringBuilder sb = new StringBuilder();
+			sb.append(inputArray[0]);
+
+			for (int i=1; i<inputArray.length; i++) {
+				sb.append(glueString);
+				sb.append(inputArray[i]);
+			}
+
+			output = sb.toString();
+		}
+
+		return output;
+	}
+	// TODO END below this to a leancog library
+	
+	
+	  // TODO refactor this into a factory pattern based on article type
+	/*
+	  private void queryIndexCollateral(int limit, String sObjectName) {
+	    
+	    LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObjectName+"...");
+	    
+	    int indexCt = 0;
+	    
+	    try { 
+	      QueryResult queryResults = connection.query(buildCollateralQuery(sObjectName, limit));
+	      if (queryResults.getSize() > 0) {
+	        for (int i=0;i<queryResults.getRecords().length;i++) {
+	          // cast the SObject to a strongly-typed Collateral
+	          // TODO this is the key to refactoring into a factory
+	          Collateral__kav col = (Collateral__kav)queryResults.getRecords()[i];
+	          
+	          
+	          LOG.debug("KnowledgeArticleId: " + col.getKnowledgeArticleId() + " - Title: "+col.getTitle()+
+	    	    " - LastModifiedDate: "+col.getLastModifiedDate().getTime().toString()
+	  	      + " - VersionNumber: "+col.getVersionNumber()
+		        + " - Summary: "+col.getSummary());
+	        	
+	        	if (indexSObj(col.getKnowledgeArticleId(), col.getTitle(), col.getSummary())) {
+		        	indexCt++;
+		        }
+	        }
+	      }
+	      
+	    } catch (Exception e) {
+	    	StringWriter sw = new StringWriter();
+				PrintWriter pw = new PrintWriter(sw);
+				e.printStackTrace(pw);
+	      LOG.error(sw.toString());
+	    }
+	    LOG.info("Salesforce Crawler: Indexing "+indexCt+" "+sObjectName+" objects.");
+	  } 
+	  */
+	  // TODO refactor this into a factory pattern based on articleType
+	  // TODO what additional meta data should be set?
+	  // TODO how to attach attachments
+/* old index method used for enterprise wsdl
+	  private boolean indexSObj(String articleId, String title, String body) { 
+		try {
+				if (notEmpty(articleId) &&
+					notEmpty(title)) {
+					// put the FAQ into the index after a basic sanity check
+					StringBuilder sb = new StringBuilder();
+					Content c = new Content();
+					c.setKey(articleId);
+					sb.setLength(0);
+					sb.append(body);
+					c.setData(sb.toString().getBytes());
+					c.addMetadata("Content-Type", "text/html");
+					c.addMetadata("title", title);
+					state.getProcessor().process(c);
+					return true;
+				}
+	    } catch (Exception e) {
+	    	StringWriter sw = new StringWriter();
+				PrintWriter pw = new PrintWriter(sw);
+				e.printStackTrace(pw);
+	      LOG.warn(sw.toString());
+	    }
+			return false;
+	  }
+*/	  
   // keeping these methods around in case we end up downloading attachments from 
   // sfdc during crawl
   /*

@@ -9,7 +9,6 @@ import com.lucid.spec.Validator;
 /**
  * Specification for SfdcDataSource properties. This specification is
  * used to supply default values and determines the validation.
- * 
  */
 public class SfdcSpec extends DataSourceSpec {
   public static final String SFDC_LOGIN = "sfdc_login";
@@ -32,7 +31,7 @@ public class SfdcSpec extends DataSourceSpec {
             DS_+DataSource.PASSWORD, 
             String.class,
             DataSource.defaults.getString(Group.datasource, DataSource.PASSWORD),
-            Validator.NOT_BLANK_VALIDATOR, 
+            Validator.NOT_NULL_VALIDATOR, 
             true));
 
     // this source supports batch processing options

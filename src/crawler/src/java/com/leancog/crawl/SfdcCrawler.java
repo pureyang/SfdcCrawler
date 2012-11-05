@@ -2,9 +2,7 @@ package com.leancog.crawl;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
@@ -27,8 +25,8 @@ import com.sforce.ws.ConnectorConfig;
 import com.sforce.ws.bind.XmlObject;
   
 /**
- * Salesforce.com Crawler
- * @author Leancog
+ * A simple crawler that can handle data source types supported by this
+ * crawler controller.
  */
 public class SfdcCrawler implements Runnable {
  
@@ -40,12 +38,9 @@ public class SfdcCrawler implements Runnable {
   int depth;
   boolean stopped = false;
 
-  private static Date lastCrawl = null;
   private PartnerConnection connection;
   private String USERNAME = null;
   private String PASSWORD = null;
-  
-  private final int SFDC_FETCH_LIMIT = 1000;
   
   // TODO: faq and collateral fields should be fetched using sfdc metadata api 
   // contains fields for each article type
@@ -82,9 +77,6 @@ public class SfdcCrawler implements Runnable {
       state.getProcessor().start();
       if (ds.getType().equals("salesforce")) {
         runSalesforceCrawl();
-        
-        // finished crawl, subsequent crawls only see modifications
-        lastCrawl = new Date();
       }
     } catch (Throwable t) {
       LOG.warn("Exception in Salesforce crawl", t);
@@ -131,7 +123,7 @@ public class SfdcCrawler implements Runnable {
 	faqFields.add("LastPublishedDate");
 	faqFields.add("CreatedDate");
 	faqFields.add("Summary");
-	//faqFields.add("Attachment__Body__s");
+	faqFields.add("Attachment__Body__s");
 	faqFields.add("Attachment__ContentType__s");
 	faqFields.add("Attachment__Length__s");
 	faqFields.add("Attachment__Name__s");
@@ -147,9 +139,7 @@ public class SfdcCrawler implements Runnable {
 	collateralFields.add("LastModifiedById");
 	collateralFields.add("LastModifiedDate");
 	collateralFields.add("LastPublishedDate");
-	// for some reason when including attachment body
-	// only the latest collateral sObj gets fetched??
-	//collateralFields.add("Attachment__Body__s");
+	collateralFields.add("Attachment__Body__s");
 	collateralFields.add("Attachment__ContentType__s");
 	collateralFields.add("Attachment__Length__s");
 	collateralFields.add("Attachment__Name__s");
@@ -175,11 +165,8 @@ public class SfdcCrawler implements Runnable {
       LOG.info("Salesforce Crawler:SessionId: "+config.getSessionId());
       
       // TODO: faq, collateral sObjects should be queried from sfdc
-      updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields);
-      updateIndex(SFDC_FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields);
-      
-      removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav");
-      removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav");
+      queryIndex(1000, "FAQ__kav", faqFields, dataCategorySelectionsFields);
+      queryIndex(1000, "Collateral__kav", collateralFields, dataCategorySelectionsFields);
       
     } catch (ConnectionException e1) {
     	StringWriter sw = new StringWriter();
@@ -196,7 +183,7 @@ public class SfdcCrawler implements Runnable {
    * @param metaFields - flat sObject definitions
    * @param childMetadataFields - child sObject definitions
    */
-  private void updateIndex(int limit, String sObjectName, ArrayList<String> metaFields, ArrayList<String> childMetadataFields) {
+  private void queryIndex(int limit, String sObjectName, ArrayList<String> metaFields, ArrayList<String> childMetadataFields) {
     
     LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObjectName+"...");
     
@@ -239,40 +226,6 @@ public class SfdcCrawler implements Runnable {
     }
     LOG.info("Salesforce Crawler: Indexed "+indexCt+" "+sObjectName+" objects.");
   }  
-  
-  private void removeIndex(int limit, String sObjectName) {
-	    
-	    LOG.info("Salesforce Crawler: Querying for the "+limit+" archived "+sObjectName+"...");
-	    
-	    int indexCt = 0;
-	  	  
-	  	ArrayList<String> result=new ArrayList<String>();
-	    try {  	    
-	      QueryResult queryResults = 
-	    		connection.query("SELECT KnowledgeArticleId FROM "+sObjectName+
-	    				" WHERE PublishStatus='Archived' AND Language = 'en_US' " +
-	    				buildLastCrawlDateQuery() +
-	    				"ORDER BY LastModifiedDate DESC LIMIT "+limit);
-	      if (queryResults.getSize() > 0) {
-			  for (SObject s : queryResults.getRecords()) {
-				  if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
-					  result.add(s.getChild("KnowledgeArticleId").getValue().toString());
-					  indexCt++;
-				  }
-			  }
-	      }
-	      Iterator<String> i = result.iterator();
-	      while (i.hasNext()) {
-	    	  state.getProcessor().delete(i.next());
-	      }
-	    } catch (Exception e) {
-	    	StringWriter sw = new StringWriter();
-				PrintWriter pw = new PrintWriter(sw);
-				e.printStackTrace(pw);
-	      LOG.info(sw.toString());
-	    }
-	    LOG.info("Salesforce Crawler: Removing "+indexCt+" "+sObjectName+" objects.");
-	  }  
   
   /**
    * 
@@ -351,27 +304,15 @@ public class SfdcCrawler implements Runnable {
   }
   public static String buildSOQLQuery(String sObjectName, int limit, ArrayList<String> metaFields, ArrayList<String> childMetadataFields) {  
 
-	
   	String result = "SELECT ";
 	result += implodeArray(metaFields, ",");
 	result += ", (SELECT "+ implodeArray(childMetadataFields, ",") + " FROM DataCategorySelections ) ";
-	result += " FROM "+sObjectName;
-	result += " WHERE PublishStatus = 'Online' AND Language = 'en_US'";
-	result += buildLastCrawlDateQuery();
-	result += " ORDER BY LastModifiedDate DESC LIMIT "+limit;
+	result += " FROM "+sObjectName+" WHERE PublishStatus = 'Online' AND Language = 'en_US' ORDER BY LastModifiedDate DESC LIMIT "+limit;
 	
 	LOG.info("Salesforce Crawler: SOQL= "+result);
 	return result;
   }
 
-  private static String buildLastCrawlDateQuery() {
-	  String result = "";
-	  if (lastCrawl != null) {
-		  String lastMod = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ssZ").format(lastCrawl);
-		  result = " AND LastModifiedDate > "+lastMod;
-	  }
-	  return result;
-  }
   public static boolean notEmpty(String s) {
 	return (s != null && s.length() > 0);
   }

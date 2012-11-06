@@ -138,10 +138,13 @@ public class SfdcCrawler implements Runnable {
 	faqFields.add("LastPublishedDate");
 	faqFields.add("CreatedDate");
 	faqFields.add("Summary");
-	//faqFields.add("Attachment__Body__s");
 	faqFields.add("Attachment__ContentType__s");
 	faqFields.add("Attachment__Length__s");
 	faqFields.add("Attachment__Name__s");
+	faqFields.add("IsVisibleInCsp");
+	faqFields.add("IsVisibleInApp");
+	faqFields.add("IsVisibleInPrm");
+	faqFields.add("IsVisibleInPkb");	
 
 	collateralFields.add("KnowledgeArticleId");
 	collateralFields.add("Title");
@@ -154,12 +157,13 @@ public class SfdcCrawler implements Runnable {
 	collateralFields.add("LastModifiedById");
 	collateralFields.add("LastModifiedDate");
 	collateralFields.add("LastPublishedDate");
-	// for some reason when including attachment body
-	// only the latest collateral sObj gets fetched??
-	//collateralFields.add("Attachment__Body__s");
 	collateralFields.add("Attachment__ContentType__s");
 	collateralFields.add("Attachment__Length__s");
 	collateralFields.add("Attachment__Name__s");
+	collateralFields.add("IsVisibleInCsp");
+	collateralFields.add("IsVisibleInApp");
+	collateralFields.add("IsVisibleInPrm");
+	collateralFields.add("IsVisibleInPkb");	
 	
 	dataCategorySelectionsFields.add("DataCategoryGroupName");
 	dataCategorySelectionsFields.add("DataCategoryName");

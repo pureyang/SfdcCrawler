@@ -58,7 +58,10 @@ public class SfdcCrawler implements Runnable {
   // contains fields for each article type
   private ArrayList<String> faqFields = new ArrayList<String>();
   private ArrayList<String> collateralFields = new ArrayList<String>(); 
-  private ArrayList<String> dataCategorySelectionsFields = new ArrayList<String>(); 
+  private ArrayList<String> dataCategorySelectionsFields = new ArrayList<String>();
+  private ArrayList<String> userIdToNameFields = new ArrayList<String>();
+  
+  private HashMap<String, String> sfdcUserIdToUserFullname = null; 
   	  
   public SfdcCrawler(SfdcCrawlState state) {
     this.state = state;
@@ -88,6 +91,9 @@ public class SfdcCrawler implements Runnable {
     try {
       state.getProcessor().start();
       if (ds.getType().equals("salesforce")) {
+		// reset usermapping on every run
+		sfdcUserIdToUserFullname = new HashMap<String, String>();
+		
         runSalesforceCrawl();
         
         // finished crawl, subsequent crawls only see modifications
@@ -130,14 +136,17 @@ public class SfdcCrawler implements Runnable {
   private void initializeMetaDataFields() {
 	faqFields.add("KnowledgeArticleId");
 	faqFields.add("Title");
+	faqFields.add("Summary");
+	faqFields.add("OwnerId");
 	faqFields.add("UrlName");
 	faqFields.add("Answer__c");
 	faqFields.add("FirstPublishedDate");
 	faqFields.add("Question__c");
+	faqFields.add("LastModifiedById");
 	faqFields.add("LastModifiedDate");
 	faqFields.add("LastPublishedDate");
 	faqFields.add("CreatedDate");
-	faqFields.add("Summary");
+	faqFields.add("CreatedById");
 	faqFields.add("Attachment__ContentType__s");
 	faqFields.add("Attachment__Length__s");
 	faqFields.add("Attachment__Name__s");
@@ -167,6 +176,10 @@ public class SfdcCrawler implements Runnable {
 	
 	dataCategorySelectionsFields.add("DataCategoryGroupName");
 	dataCategorySelectionsFields.add("DataCategoryName");
+	
+	userIdToNameFields.add("OwnerId");
+	userIdToNameFields.add("CreatedById");
+	userIdToNameFields.add("LastModifiedById");
   }
   
   private void runSalesforceCrawl() throws Exception {
@@ -182,8 +195,6 @@ public class SfdcCrawler implements Runnable {
       
       LOG.info("Salesforce Crawler:Auth EndPoint: "+config.getAuthEndpoint());
       LOG.info("Salesforce Crawler:Service EndPoint: "+config.getServiceEndpoint());
-      LOG.info("Salesforce Crawler:Username: "+config.getUsername());
-      LOG.info("Salesforce Crawler:SessionId: "+config.getSessionId());
       
       // TODO: faq, collateral sObjects should be queried from sfdc
       updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields);
@@ -220,6 +231,7 @@ public class SfdcCrawler implements Runnable {
     		connection.query(buildUpdateQuery(sObjectName, limit, metaFields, childMetadataFields));
       if (queryResults.getSize() > 0) {
 		  for (SObject s : queryResults.getRecords()) {
+		  		
 			// add to result attachment body if present
 			addAttachmentBody(s, sObjectName, result);
 			
@@ -230,11 +242,18 @@ public class SfdcCrawler implements Runnable {
 			for (int i=0; i<metaFields.size(); i++) {
 				buildResult(s.getChild(metaFields.get(i)), result);
 			}
+			
 			// get fields that contain n elements
 			XmlObject categories = s.getChild("DataCategorySelections");
 			if (categories.hasChildren()) {	  
 				buildChildResult(categories, result);
 			}
+			
+			// convert UserId to User Fullname
+			addUserFullName(s, result);
+			
+			// fetch voting fields
+			//addVoteInfo(s, result);
 			
 			if (indexSObj(result)) {
 				indexCt++;
@@ -349,7 +368,7 @@ public class SfdcCrawler implements Runnable {
 			  result.put(key, result.get(key)+","+x.getChild("DataCategoryName").getValue().toString());
 		  } else {
 			  result.put(key, x.getChild("DataCategoryName").getValue().toString());  
-		  }		  
+		  }
 	  }
 	  if (x.hasChildren()) {
 		  Iterator<XmlObject> i = x.getChildren();
@@ -447,6 +466,83 @@ public class SfdcCrawler implements Runnable {
 		}
   }
   
+  private void addVoteInfo(SObject sObj, String sObjName, HashMap<String, String>result) {
+	if (sObj.hasChildren()) {
+		// find fields that need mapping between userId and their full names
+		for (int i=0; i<userIdToNameFields.size(); i++) {
+			String articleId = sObj.getChild("KnowledgeArticleId").getValue().toString();
+			int voteCount = fetchSfdcVoteInfo(articleId, sObjName);
+			result.put("Votes", String.valueOf(voteCount));
+		}
+	}
+  }
+  
+  private int fetchSfdcVoteInfo(String articleId, String sObjName) {
+	int voteCount =0;
+	try {
+		String q = "SELECT (SELECT Id FROM Votes) FROM "+sObjName.substring(0, sObjName.length()-1)+" WHERE id = '"+articleId+"'";
+		QueryResult queryResults = connection.query(q);
+		LOG.info("Salesforce Crawler: User Full Name SOQL="+q);
+		if (queryResults.getSize() > 0) {
+			for (SObject s : queryResults.getRecords()) {
+				// traverse results to find out how many votes are on this article
+			}			
+		}
+	} catch (ConnectionException ce) {
+		handleException(ce);
+	}
+	return voteCount;
+  }
+  
+  
+  private void addUserFullName(SObject sObj, HashMap<String, String>result) {
+	if (sObj.hasChildren()) {
+		// find fields that need mapping between userId and their full names
+		for (int i=0; i<userIdToNameFields.size(); i++) {
+			String userField = userIdToNameFields.get(i);
+			XmlObject userIdObj = sObj.getChild(userField);
+			if (userIdObj != null && notEmpty(userIdObj.getValue().toString())) {
+				// we have a valid userId, see if the mapping already exists
+				String userId = userIdObj.getValue().toString();
+				String userFullName = null;
+				if (sfdcUserIdToUserFullname.containsKey(userId)) {
+					userFullName = sfdcUserIdToUserFullname.get(userId);
+				} else {
+					// couldn't find it in our cache, lets query
+					userFullName = fetchSfdcFullName(userId);
+					if (userFullName != null) {
+						// non empty result
+						sfdcUserIdToUserFullname.put(userId, userFullName);
+						LOG.info("Salesforce Crawler:db lookup on userId="+userId+" name found="+userFullName);
+					}
+				}
+				// populate the final result with the actual name as opposed to an Id
+				if (userFullName != null) {
+					result.put(userField, userFullName);
+				}
+			}
+		}
+	}
+  }
+  
+  private String fetchSfdcFullName(String userId) {
+	String fullName = null;
+	try {
+		QueryResult queryResults = connection.query("SELECT Name FROM User WHERE id = '"+userId+"'");
+		LOG.info("Salesforce Crawler: User Full Name SOQL= SELECT Name FROM User WHERE id = '"+userId+"'");
+		if (queryResults.getSize() > 0) {
+			for (SObject s : queryResults.getRecords()) {
+				if (s.hasChildren() && s.getChild("Name") != null) {
+					fullName = s.getChild("Name").getValue().toString();
+				}
+			}
+		}
+	} catch (ConnectionException ce) {
+		handleException(ce);
+	}
+	return fullName;
+  }
+ 
   /**
    * generates SOQL statement to just fetch attachment body
    * @param sObjectName

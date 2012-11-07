@@ -47,7 +47,7 @@ public class SfdcCrawler implements Runnable {
   int depth;
   boolean stopped = false;
 
-  private static Date lastCrawl = null;
+  private Date lastCrawl = null;
   private PartnerConnection connection;
   private String USERNAME = null;
   private String PASSWORD = null;
@@ -187,8 +187,9 @@ public class SfdcCrawler implements Runnable {
     
    	ConnectorConfig config = new ConnectorConfig();
     config.setUsername(USERNAME);
+    LOG.info("Salesforce Crawler:Username: "+config.getUsername());
     config.setPassword(PASSWORD);
-    config.setTraceMessage(true);
+    //config.setTraceMessage(true);
     
     try {
       connection = Connector.newConnection(config);
@@ -196,13 +197,14 @@ public class SfdcCrawler implements Runnable {
       LOG.info("Salesforce Crawler:Auth EndPoint: "+config.getAuthEndpoint());
       LOG.info("Salesforce Crawler:Service EndPoint: "+config.getServiceEndpoint());
       
+      
       // TODO: faq, collateral sObjects should be queried from sfdc
-      updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields);
-      updateIndex(SFDC_FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields);
+      updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields, lastCrawl);
+      updateIndex(SFDC_FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields, lastCrawl);
       if (lastCrawl != null) {
     	  // only look to remove articles if this isn't first time crawling
-    	  removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav");
-    	  removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav");
+    	  removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav", lastCrawl);
+    	  removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav", lastCrawl);
     	  LOG.info("Salesforce crawler update since last crawl="+lastCrawl.toString());
       } else {
     	  LOG.info("Salesforce crawler INITIAL LOAD");
@@ -219,7 +221,7 @@ public class SfdcCrawler implements Runnable {
    * @param metaFields - flat sObject definitions
    * @param childMetadataFields - child sObject definitions
    */
-  private void updateIndex(int limit, String sObjectName, ArrayList<String> metaFields, ArrayList<String> childMetadataFields) {
+  private void updateIndex(int limit, String sObjectName, ArrayList<String> metaFields, ArrayList<String> childMetadataFields, Date lastCrawl) {
     
     LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObjectName+"...");
     
@@ -228,7 +230,7 @@ public class SfdcCrawler implements Runnable {
   	HashMap<String, String> result = new HashMap<String,String>();
     try {  	    
       QueryResult queryResults = 
-    		connection.query(buildUpdateQuery(sObjectName, limit, metaFields, childMetadataFields));
+    		connection.query(buildUpdateQuery(sObjectName, limit, metaFields, childMetadataFields, lastCrawl));
       if (queryResults.getSize() > 0) {
 		  for (SObject s : queryResults.getRecords()) {
 		  		
@@ -275,7 +277,7 @@ public class SfdcCrawler implements Runnable {
    * @param limit
    * @param sObjectName
    */
-  private void removeIndex(int limit, String sObjectName) {
+  private void removeIndex(int limit, String sObjectName, Date lastCrawl) {
 	    
 	    LOG.info("Salesforce Crawler: Querying for the "+limit+" archived "+sObjectName+"...");
 	    
@@ -286,7 +288,7 @@ public class SfdcCrawler implements Runnable {
 	      QueryResult queryResults = 
 	    		connection.query("SELECT KnowledgeArticleId FROM "+sObjectName+
 	    				" WHERE PublishStatus='Archived' AND Language = 'en_US' " +
-	    				buildLastCrawlDateQuery() +
+	    				buildLastCrawlDateQuery(lastCrawl) +
 	    				"ORDER BY LastModifiedDate DESC LIMIT "+limit);
 	      if (queryResults.getSize() > 0) {
 			  for (SObject s : queryResults.getRecords()) {
@@ -358,7 +360,7 @@ public class SfdcCrawler implements Runnable {
    * @param x
    * @param result
    */
-  private static void buildChildResult(XmlObject x, HashMap<String, String> result) {
+  private void buildChildResult(XmlObject x, HashMap<String, String> result) {
 	  if (x.getChild("DataCategoryGroupName") != null && 
 			  x.getChild("DataCategoryGroupName").getValue() != null &&
 			  x.getChild("DataCategoryName") != null && 
@@ -386,7 +388,7 @@ public class SfdcCrawler implements Runnable {
    * @param x
    * @param result
    */
-  private static void buildResult(XmlObject x, HashMap<String, String> result) {
+  private void buildResult(XmlObject x, HashMap<String, String> result) {
 	  if (x != null && x.getValue() != null) {
 		  result.put(x.getName().getLocalPart(), x.getValue().toString());
 	  }
@@ -400,14 +402,14 @@ public class SfdcCrawler implements Runnable {
    * @param metaFields - top level fields of sObject
    * @param childMetadataFields - sub fields of sObject
    */
-  public static String buildUpdateQuery(String sObjectName, int limit, ArrayList<String> metaFields, ArrayList<String> childMetadataFields) {  
+  public String buildUpdateQuery(String sObjectName, int limit, ArrayList<String> metaFields, ArrayList<String> childMetadataFields, Date lastCrawl) {  
 	
   	String result = "SELECT ";
 	result += implodeArray(metaFields, ",");
 	result += ", (SELECT "+ implodeArray(childMetadataFields, ",") + " FROM DataCategorySelections ) ";
 	result += " FROM "+sObjectName;
 	result += " WHERE PublishStatus = 'Online' AND Language = 'en_US'";
-	result += buildLastCrawlDateQuery();
+	result += buildLastCrawlDateQuery(lastCrawl);
 	result += " ORDER BY LastModifiedDate DESC LIMIT "+limit;
 	
 	LOG.info("Salesforce Crawler: SOQL= "+result);
@@ -548,7 +550,7 @@ public class SfdcCrawler implements Runnable {
    * @param articleId
    * @return
    */
-  private static String buildAttachmentQuery(String sObjectName, String articleId) {
+  private String buildAttachmentQuery(String sObjectName, String articleId) {
 		String q = "SELECT Attachment__Body__s FROM "+sObjectName+
 				" WHERE KnowledgeArticleId='"+articleId+"'"+
 				" AND PublishStatus = 'Online'";
@@ -560,7 +562,7 @@ public class SfdcCrawler implements Runnable {
    * genereates SOQL substatemnt when quering since last modified date
    * @return
    */
-  private static String buildLastCrawlDateQuery() {
+  private String buildLastCrawlDateQuery(Date lastCrawl) {
 	  String result = "";
 	  if (lastCrawl != null) {
 		  String lastMod = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ssZ").format(lastCrawl);
@@ -568,13 +570,14 @@ public class SfdcCrawler implements Runnable {
 	  }
 	  return result;
   }
+  
   public static boolean notEmpty(String s) {
 	return (s != null && s.length() > 0);
   }
 
-	public static String implodeArray(ArrayList<String> inputArray, String glueString) {
-	
-		String output = "";
+  public static String implodeArray(ArrayList<String> inputArray, String glueString) {
+
+	String output = "";
 	
 	if (inputArray.size() > 0) {
 		StringBuilder sb = new StringBuilder();
@@ -589,12 +592,12 @@ public class SfdcCrawler implements Runnable {
 	}
 	
 	return output;
-	}
+  }
 	
-	private static void handleException(Exception e) {
-		StringWriter sw = new StringWriter();
-		PrintWriter pw = new PrintWriter(sw);
-		e.printStackTrace(pw);
-		LOG.debug(sw.toString());
-	}
+  private void handleException(Exception e) {
+	StringWriter sw = new StringWriter();
+	PrintWriter pw = new PrintWriter(sw);
+	e.printStackTrace(pw);
+	LOG.debug(sw.toString());
+  }
 }

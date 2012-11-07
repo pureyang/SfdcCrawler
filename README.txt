@@ -6,8 +6,7 @@ Created by LeanCog
 
 Build and create Jar using ant
 e.g.
-ant -Dlwe.home=[path to installation of LucidWorks]
-ant assemble -Dlwe.home=[path to installation of LucidWorks]
+src/ant assemble -Dlwe.home=[path to installation of LucidWorks]
 
 To see this crawler in action please put the sfdc-crawler.jar in the "app/crawlers"
 directory of your LucidWorks installation, and restart LucidWorks. The admin UI for

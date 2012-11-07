@@ -253,7 +253,7 @@ public class SfdcCrawler implements Runnable {
 			addUserFullName(s, result);
 			
 			// fetch voting fields
-			//addVoteInfo(s, result);
+			addVoteInfo(s, sObjectName, result);
 			
 			if (indexSObj(result)) {
 				indexCt++;
@@ -466,26 +466,25 @@ public class SfdcCrawler implements Runnable {
 		}
   }
   
-  private void addVoteInfo(SObject sObj, String sObjName, HashMap<String, String>result) {
-	if (sObj.hasChildren()) {
-		// find fields that need mapping between userId and their full names
-		for (int i=0; i<userIdToNameFields.size(); i++) {
-			String articleId = sObj.getChild("KnowledgeArticleId").getValue().toString();
-			int voteCount = fetchSfdcVoteInfo(articleId, sObjName);
-			result.put("Votes", String.valueOf(voteCount));
-		}
+  private void addVoteInfo(XmlObject votes, String sObjName, HashMap<String, String>result) {
+	if (votes.hasChildren()) {
+		String articleId = votes.getChild("KnowledgeArticleId").getValue().toString();
+		result.put("Votes", fetchSfdcVoteInfo(articleId, sObjName));
 	}
   }
   
-  private int fetchSfdcVoteInfo(String articleId, String sObjName) {
-	int voteCount =0;
+  private String fetchSfdcVoteInfo(String articleId, String sObjName) {
+	String voteCount = "0";
 	try {
 		String q = "SELECT (SELECT Id FROM Votes) FROM "+sObjName.substring(0, sObjName.length()-1)+" WHERE id = '"+articleId+"'";
 		QueryResult queryResults = connection.query(q);
-		LOG.info("Salesforce Crawler: User Full Name SOQL="+q);
+		System.out.println("Salesforce Crawler: User Full Name SOQL="+q);
 		if (queryResults.getSize() > 0) {
 			for (SObject s : queryResults.getRecords()) {
-				// traverse results to find out how many votes are on this article
+				// grab the size element, that contains total votes
+				if (s.hasChildren() && s.getChild("Votes") != null && s.getChild("Votes").getChild("records") != null) {
+					voteCount = s.getChild("Votes").getChild("size").getValue().toString();
+				}
 			}			
 		}
 	} catch (ConnectionException ce) {

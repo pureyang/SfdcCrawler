@@ -1,5 +1,7 @@
 package com.leancog.crawl;
 
+import java.util.Date;
+
 import com.lucid.Defaults.Group;
 import com.lucid.admin.collection.datasource.DataSource;
 import com.lucid.crawl.DataSourceSpec;
@@ -13,6 +15,7 @@ import com.lucid.spec.Validator;
  */
 public class SfdcSpec extends DataSourceSpec {
   public static final String SFDC_LOGIN = "sfdc_login";
+  public static final String SFDC_MAX_ARTICLE_FETCH_COUNT = "sfdc_fetch_limit";
   
   public SfdcSpec() {
     super(Category.FileSystem.toString());
@@ -35,6 +38,14 @@ public class SfdcSpec extends DataSourceSpec {
             Validator.NOT_BLANK_VALIDATOR, 
             true));
 
+    // stores date of last crawl, when null, crawler index everything
+    addSpecProperty(new SpecProperty(SFDC_MAX_ARTICLE_FETCH_COUNT,
+            "Maximum Articles to fetch from Salesforce.", 
+            Integer.class,
+            1000,
+            Validator.NON_NEG_INT_STRING_VALIDATOR, 
+            false));
+    
     // this source supports batch processing options
     addBatchProcessingProperties();
     // this source supports field mapping options

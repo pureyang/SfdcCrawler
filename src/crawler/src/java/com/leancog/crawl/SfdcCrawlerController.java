@@ -1,6 +1,9 @@
 package com.leancog.crawl;
 
-import com.leancog.crawl.SfdcSpec;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,6 +11,7 @@ import com.lucid.admin.collection.datasource.DataSource;
 import com.lucid.admin.collection.datasource.DataSourceId;
 import com.lucid.crawl.CrawlId;
 import com.lucid.crawl.CrawlProcessor;
+import com.lucid.crawl.CrawlStatus;
 import com.lucid.crawl.CrawlerController;
 import com.lucid.crawl.DataSourceFactory;
 import com.lucid.crawl.batch.BatchManager;
@@ -18,7 +22,6 @@ public class SfdcCrawlerController extends CrawlerController {
   /** Symbolic name to use when initializing and using REST API. */
   public static final String CC_EX = "leancog.crawler";
   
-
   private DataSourceFactory dsFactory;
   private String uuid;
 

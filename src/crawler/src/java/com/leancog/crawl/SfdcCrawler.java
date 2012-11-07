@@ -47,12 +47,14 @@ public class SfdcCrawler implements Runnable {
   int depth;
   boolean stopped = false;
 
-  private Date lastCrawl = null;
   private PartnerConnection connection;
   private String USERNAME = null;
   private String PASSWORD = null;
-  
-  private final int SFDC_FETCH_LIMIT = 1000;
+  private int SFDC_FETCH_LIMIT = 1000;
+  // TOOD: this isn't the right place to put this date
+  // there should be last crawl on each data source instance
+  // @see com.lucid.crawl.History, com.lucid.crawl.DataSourceHistory
+  private static Date LAST_CRAWL = null;
   
   // TODO: faq and collateral fields should be fetched using sfdc metadata api 
   // contains fields for each article type
@@ -77,6 +79,7 @@ public class SfdcCrawler implements Runnable {
 	USERNAME = ds.getString(SfdcSpec.SFDC_LOGIN);
 	PASSWORD = ds.getString(DataSource.PASSWORD);
 	
+	SFDC_FETCH_LIMIT = ds.getInt(SfdcSpec.SFDC_MAX_ARTICLE_FETCH_COUNT, 1000);
 	initializeMetaDataFields();
   }
 
@@ -91,13 +94,13 @@ public class SfdcCrawler implements Runnable {
     try {
       state.getProcessor().start();
       if (ds.getType().equals("salesforce")) {
-		// reset usermapping on every run
+		// reset usermapping cache on every run
 		sfdcUserIdToUserFullname = new HashMap<String, String>();
 		
         runSalesforceCrawl();
         
-        // finished crawl, subsequent crawls only see modifications
-        lastCrawl = new Date();
+        // finished crawl, subsequent crawls only indexes updates since this crawl
+        LAST_CRAWL = new Date();
       }
     } catch (Throwable t) {
       LOG.warn("Exception in Salesforce crawl", t);
@@ -183,7 +186,7 @@ public class SfdcCrawler implements Runnable {
   }
   
   private void runSalesforceCrawl() throws Exception {
-    LOG.info("Salesforce crawler started");
+    LOG.info("Salesforce Crawler: Starting");
     
    	ConnectorConfig config = new ConnectorConfig();
     config.setUsername(USERNAME);
@@ -199,15 +202,15 @@ public class SfdcCrawler implements Runnable {
       
       
       // TODO: faq, collateral sObjects should be queried from sfdc
-      updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields, lastCrawl);
-      updateIndex(SFDC_FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields, lastCrawl);
-      if (lastCrawl != null) {
+      updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields, LAST_CRAWL);
+      updateIndex(SFDC_FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields, LAST_CRAWL);
+      if (LAST_CRAWL != null) {
     	  // only look to remove articles if this isn't first time crawling
-    	  removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav", lastCrawl);
-    	  removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav", lastCrawl);
-    	  LOG.info("Salesforce crawler update since last crawl="+lastCrawl.toString());
+    	  removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav", LAST_CRAWL);
+    	  removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav", LAST_CRAWL);
+    	  LOG.info("Salesforce Crawler:Indexing since last crawl="+LAST_CRAWL.toString());
       } else {
-    	  LOG.info("Salesforce crawler INITIAL LOAD");
+    	  LOG.info("Salesforce Crawler:Indexing INITIAL LOAD");
       }
     } catch (ConnectionException ce) {
     	handleException(ce);
@@ -222,9 +225,7 @@ public class SfdcCrawler implements Runnable {
    * @param childMetadataFields - child sObject definitions
    */
   private void updateIndex(int limit, String sObjectName, ArrayList<String> metaFields, ArrayList<String> childMetadataFields, Date lastCrawl) {
-    
-    LOG.info("Salesforce Crawler: Querying for the "+limit+" newest "+sObjectName+"...");
-    
+       
     int indexCt = 0;
   	  
   	HashMap<String, String> result = new HashMap<String,String>();
@@ -279,7 +280,7 @@ public class SfdcCrawler implements Runnable {
    */
   private void removeIndex(int limit, String sObjectName, Date lastCrawl) {
 	    
-	    LOG.info("Salesforce Crawler: Querying for the "+limit+" archived "+sObjectName+"...");
+	    LOG.info("Salesforce Crawler:Querying for archived "+sObjectName+" objects...");
 	    
 	    int indexCt = 0;
 	  	  
@@ -308,7 +309,7 @@ public class SfdcCrawler implements Runnable {
 				e.printStackTrace(pw);
 	      LOG.info(sw.toString());
 	    }
-	    LOG.info("Salesforce Crawler: Removing "+indexCt+" "+sObjectName+" objects.");
+	    LOG.info("Salesforce Crawler:Removing "+indexCt+" "+sObjectName+" objects.");
 	  }  
   
   /**
@@ -337,13 +338,13 @@ public class SfdcCrawler implements Runnable {
 			c.addMetadata("Content-Type", "text/html");
 			c.addMetadata("title", title);
 			
-			LOG.info("Salesforce Crawler: indexing articleId="+articleId+" title="+title+" summary="+summary);
+			LOG.debug("Salesforce Crawler: Indexing articleId="+articleId+" title="+title+" summary="+summary);
 			
 			// index articleType specific fields
 			for (Entry<String, String> entry : values.entrySet()) {
 				c.addMetadata(entry.getKey(), entry.getValue().toString());
 				if (!entry.getKey().equals("Attachment__Body__s")) {
-					LOG.info("Salesforce Crawler: indexing articleId="+articleId+" key="+entry.getKey()+" value="+entry.getValue().toString());
+					LOG.debug("Salesforce Crawler: Indexing field key="+entry.getKey()+" value="+entry.getValue().toString());
 				}
 			}
 			state.getProcessor().process(c);
@@ -412,7 +413,6 @@ public class SfdcCrawler implements Runnable {
 	result += buildLastCrawlDateQuery(lastCrawl);
 	result += " ORDER BY LastModifiedDate DESC LIMIT "+limit;
 	
-	LOG.info("Salesforce Crawler: SOQL= "+result);
 	return result;
   }
   
@@ -449,8 +449,7 @@ public class SfdcCrawler implements Runnable {
 					        byte[] bits = DatatypeConverter.parseBase64Binary(body);
 					        
 					        ByteArrayInputStream bis = new ByteArrayInputStream(bits);
-					        String attachString = tika.parseToString(bis, metadata);
-							LOG.info("Salesforce Crawler: articleId="+articleId+" found attachment body of type="+contentType);							
+					        String attachString = tika.parseToString(bis, metadata);							
 							// add body into result
 							result.put("Attachment__Body_content", attachString);
 						}
@@ -480,7 +479,6 @@ public class SfdcCrawler implements Runnable {
 	try {
 		String q = "SELECT (SELECT Id FROM Votes) FROM "+sObjName.substring(0, sObjName.length()-1)+" WHERE id = '"+articleId+"'";
 		QueryResult queryResults = connection.query(q);
-		System.out.println("Salesforce Crawler: User Full Name SOQL="+q);
 		if (queryResults.getSize() > 0) {
 			for (SObject s : queryResults.getRecords()) {
 				// grab the size element, that contains total votes
@@ -495,7 +493,13 @@ public class SfdcCrawler implements Runnable {
 	return voteCount;
   }
   
-  
+  /**
+   * lookup the users full name based upon the userid from sfdc soql query
+   * 
+   * caches userId to make sure we limit number of queries to sfdc
+   * @param sObj
+   * @param result
+   */
   private void addUserFullName(SObject sObj, HashMap<String, String>result) {
 	if (sObj.hasChildren()) {
 		// find fields that need mapping between userId and their full names
@@ -514,7 +518,6 @@ public class SfdcCrawler implements Runnable {
 					if (userFullName != null) {
 						// non empty result
 						sfdcUserIdToUserFullname.put(userId, userFullName);
-						LOG.info("Salesforce Crawler:db lookup on userId="+userId+" name found="+userFullName);
 					}
 				}
 				// populate the final result with the actual name as opposed to an Id
@@ -530,7 +533,6 @@ public class SfdcCrawler implements Runnable {
 	String fullName = null;
 	try {
 		QueryResult queryResults = connection.query("SELECT Name FROM User WHERE id = '"+userId+"'");
-		LOG.info("Salesforce Crawler: User Full Name SOQL= SELECT Name FROM User WHERE id = '"+userId+"'");
 		if (queryResults.getSize() > 0) {
 			for (SObject s : queryResults.getRecords()) {
 				if (s.hasChildren() && s.getChild("Name") != null) {
@@ -554,7 +556,6 @@ public class SfdcCrawler implements Runnable {
 		String q = "SELECT Attachment__Body__s FROM "+sObjectName+
 				" WHERE KnowledgeArticleId='"+articleId+"'"+
 				" AND PublishStatus = 'Online'";
-		LOG.info("Salesforce Crawler: SOQL= "+q);
 		return q;
   }
 

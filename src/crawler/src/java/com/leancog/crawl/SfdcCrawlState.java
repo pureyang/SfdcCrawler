@@ -4,6 +4,7 @@ import com.lucid.crawl.CrawlState;
 
 public class SfdcCrawlState extends CrawlState {
   SfdcCrawler crawler = null;
+
   Thread t = null;
   
   public void start() throws Exception {
@@ -22,4 +23,5 @@ public class SfdcCrawlState extends CrawlState {
     }
     crawler.stop();
   }
+  
 }

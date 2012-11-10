@@ -22,7 +22,6 @@ import org.slf4j.LoggerFactory;
 import com.lucid.Defaults.Group;
 import com.lucid.admin.collection.datasource.DataSource;
 import com.lucid.crawl.CrawlDataSource;
-import com.lucid.crawl.CrawlState;
 import com.lucid.crawl.CrawlStatus.JobState;
 import com.lucid.crawl.io.Content;
 import com.sforce.soap.partner.Connector;
@@ -41,7 +40,7 @@ public class SfdcCrawler implements Runnable {
  
   private static final Logger LOG = LoggerFactory.getLogger(SfdcCrawler.class);
   
-  CrawlState state;
+  SfdcCrawlState state;
   CrawlDataSource ds;
   long maxSize;
   int depth;
@@ -54,7 +53,7 @@ public class SfdcCrawler implements Runnable {
   // TOOD: this isn't the right place to put this date
   // there should be last crawl on each data source instance
   // @see com.lucid.crawl.History, com.lucid.crawl.DataSourceHistory
-  private static Date LAST_CRAWL = null;
+  private Date LAST_CRAWL = null;
   
   // TODO: faq and collateral fields should be fetched using sfdc metadata api 
   // contains fields for each article type
@@ -96,11 +95,13 @@ public class SfdcCrawler implements Runnable {
       if (ds.getType().equals("salesforce")) {
 		// reset usermapping cache on every run
 		sfdcUserIdToUserFullname = new HashMap<String, String>();
-		
+
+        // last crawl is on the state
+        LAST_CRAWL = state.getLastCrawl();
+        
         runSalesforceCrawl();
         
-        // finished crawl, subsequent crawls only indexes updates since this crawl
-        LAST_CRAWL = new Date();
+
       }
     } catch (Throwable t) {
       LOG.warn("Exception in Salesforce crawl", t);
@@ -137,45 +138,40 @@ public class SfdcCrawler implements Runnable {
   }
   
   private void initializeMetaDataFields() {
+	  
+	/*
 	faqFields.add("KnowledgeArticleId");
 	faqFields.add("Title");
 	faqFields.add("Summary");
 	faqFields.add("OwnerId");
 	faqFields.add("UrlName");
-	faqFields.add("Answer__c");
+	faqFields.add("ArticleNumber");
 	faqFields.add("FirstPublishedDate");
-	faqFields.add("Question__c");
 	faqFields.add("LastModifiedById");
 	faqFields.add("LastModifiedDate");
 	faqFields.add("LastPublishedDate");
 	faqFields.add("CreatedDate");
 	faqFields.add("CreatedById");
-	faqFields.add("Attachment__ContentType__s");
-	faqFields.add("Attachment__Length__s");
-	faqFields.add("Attachment__Name__s");
 	faqFields.add("IsVisibleInCsp");
 	faqFields.add("IsVisibleInApp");
 	faqFields.add("IsVisibleInPrm");
-	faqFields.add("IsVisibleInPkb");	
+	faqFields.add("IsVisibleInPkb");
+	*/
+	  
+	initDefaultFields(faqFields);
+	// custom fields
+	faqFields.add("Question__c");
+	faqFields.add("Answer__c");
+	faqFields.add("Attachment__ContentType__s");
+	faqFields.add("Attachment__Length__s");
+	faqFields.add("Attachment__Name__s");	
 
-	collateralFields.add("KnowledgeArticleId");
-	collateralFields.add("Title");
-	collateralFields.add("Summary");
-	collateralFields.add("OwnerId");
-	collateralFields.add("UrlName");
-	collateralFields.add("FirstPublishedDate");
-	collateralFields.add("CreatedDate");
-	collateralFields.add("CreatedById");
-	collateralFields.add("LastModifiedById");
-	collateralFields.add("LastModifiedDate");
-	collateralFields.add("LastPublishedDate");
+	initDefaultFields(collateralFields);
+
+	// custom fields
 	collateralFields.add("Attachment__ContentType__s");
 	collateralFields.add("Attachment__Length__s");
 	collateralFields.add("Attachment__Name__s");
-	collateralFields.add("IsVisibleInCsp");
-	collateralFields.add("IsVisibleInApp");
-	collateralFields.add("IsVisibleInPrm");
-	collateralFields.add("IsVisibleInPkb");	
 	
 	dataCategorySelectionsFields.add("DataCategoryGroupName");
 	dataCategorySelectionsFields.add("DataCategoryName");
@@ -183,6 +179,25 @@ public class SfdcCrawler implements Runnable {
 	userIdToNameFields.add("OwnerId");
 	userIdToNameFields.add("CreatedById");
 	userIdToNameFields.add("LastModifiedById");
+  }
+  
+  private void initDefaultFields(ArrayList<String> target) {
+	  target.add("KnowledgeArticleId");
+	  target.add("Title");
+	  target.add("Summary");
+	  target.add("OwnerId");
+	  target.add("UrlName");
+	  target.add("ArticleNumber");
+	  target.add("FirstPublishedDate");
+	  target.add("LastModifiedById");
+	  target.add("LastModifiedDate");
+	  target.add("LastPublishedDate");
+	  target.add("CreatedDate");
+	  target.add("CreatedById");
+	  target.add("IsVisibleInCsp");
+	  target.add("IsVisibleInApp");
+	  target.add("IsVisibleInPrm");
+	  target.add("IsVisibleInPkb");
   }
   
   private void runSalesforceCrawl() throws Exception {

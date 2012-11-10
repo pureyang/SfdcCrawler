@@ -1,7 +1,5 @@
 package com.leancog.crawl;
 
-import java.util.Date;
-
 import com.lucid.Defaults.Group;
 import com.lucid.admin.collection.datasource.DataSource;
 import com.lucid.crawl.DataSourceSpec;

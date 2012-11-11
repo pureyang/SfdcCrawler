@@ -562,23 +562,24 @@ public class SfdcCrawler implements Runnable {
 		}
   }
   
-  private void addVoteInfo(XmlObject votes, String sObjName, HashMap<String, String>result) {
-	if (votes.hasChildren()) {
-		String articleId = votes.getChild("KnowledgeArticleId").getValue().toString();
-		result.put("Votes", fetchSfdcVoteInfo(articleId, sObjName));
+  private void addVoteInfo(XmlObject parentObj, String sObjName, HashMap<String, String>result) {
+	if (parentObj.hasChildren()) {
+		String articleId = parentObj.getChild("KnowledgeArticleId").getValue().toString();
+		result.put("VoteScore", fetchSfdcVoteInfo(articleId, sObjName));
+		result.put("ViewScore", fetchSfdcViewInfo(articleId, sObjName));
 	}
   }
   
   private String fetchSfdcVoteInfo(String articleId, String sObjName) {
 	String voteCount = "0";
 	try {
-		String q = "SELECT (SELECT Id FROM Votes) FROM "+sObjName.substring(0, sObjName.length()-1)+" WHERE id = '"+articleId+"'";
+		String q = "SELECT NormalizedScore FROM "+sObjName.substring(0, sObjName.length()-3)+"VoteStat WHERE Channel='AllChannels' AND IsDeleted=false AND ParentId = '"+articleId+"'";
 		QueryResult queryResults = connection.query(q);
 		if (queryResults.getSize() > 0) {
 			for (SObject s : queryResults.getRecords()) {
 				// grab the size element, that contains total votes
-				if (s.hasChildren() && s.getChild("Votes") != null && s.getChild("Votes").getChild("records") != null) {
-					voteCount = s.getChild("Votes").getChild("size").getValue().toString();
+				if (s.hasChildren() && s.getChild("NormalizedScore") != null) {
+					voteCount = s.getChild("NormalizedScore").getValue().toString();
 				}
 			}			
 		}
@@ -588,6 +589,25 @@ public class SfdcCrawler implements Runnable {
 	return voteCount;
   }
   
+  private String fetchSfdcViewInfo(String articleId, String sObjName) {
+	String voteCount = "0";
+	try {
+		String q = "SELECT NormalizedScore FROM "+sObjName.substring(0, sObjName.length()-3)+"ViewStat WHERE Channel='AllChannels' AND IsDeleted=false AND ParentId = '"+articleId+"'";
+		LOG.info("Salesforce Crawler: view score sql="+q);
+		QueryResult queryResults = connection.query(q);
+		if (queryResults.getSize() > 0) {
+			for (SObject s : queryResults.getRecords()) {
+				// grab the size element, that contains total votes
+				if (s.hasChildren() && s.getChild("NormalizedScore") != null) {
+					voteCount = s.getChild("NormalizedScore").getValue().toString();
+				}
+			}			
+		}
+	} catch (ConnectionException ce) {
+		handleException(ce);
+	}
+	return voteCount;
+  }  
   /**
    * lookup the users full name based upon the userid from sfdc soql query
    * 
@@ -655,7 +675,7 @@ public class SfdcCrawler implements Runnable {
   }
 
   /**
-   * genereates SOQL substatemnt when quering since last modified date
+   * genereates SOQL substatemnt when querying since last modified date
    * @return
    */
   private String buildLastCrawlDateQuery(Date lastCrawl) {

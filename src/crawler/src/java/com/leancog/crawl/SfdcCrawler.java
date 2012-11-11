@@ -78,7 +78,7 @@ public class SfdcCrawler implements Runnable {
 	USERNAME = ds.getString(SfdcSpec.SFDC_LOGIN);
 	PASSWORD = ds.getString(DataSource.PASSWORD);
 	
-	SFDC_FETCH_LIMIT = ds.getInt(SfdcSpec.SFDC_MAX_ARTICLE_FETCH_COUNT, 1000);
+	SFDC_FETCH_LIMIT = ds.getInt(SfdcSpec.SFDC_MAX_ARTICLE_FETCH_COUNT, SFDC_FETCH_LIMIT);
 	initializeMetaDataFields();
   }
 
@@ -93,6 +93,11 @@ public class SfdcCrawler implements Runnable {
     try {
       state.getProcessor().start();
       if (ds.getType().equals("salesforce")) {
+    	RegistrationCheck checker = new RegistrationCheck();
+    	if (!checker.verify()) {
+    		LOG.error("Salesforce Crawler: Crawl Stopped, Failed Registration check.");
+    		return;
+    	}
 		// reset usermapping cache on every run
 		sfdcUserIdToUserFullname = new HashMap<String, String>();
 
@@ -138,25 +143,6 @@ public class SfdcCrawler implements Runnable {
   }
   
   private void initializeMetaDataFields() {
-	  
-	/*
-	faqFields.add("KnowledgeArticleId");
-	faqFields.add("Title");
-	faqFields.add("Summary");
-	faqFields.add("OwnerId");
-	faqFields.add("UrlName");
-	faqFields.add("ArticleNumber");
-	faqFields.add("FirstPublishedDate");
-	faqFields.add("LastModifiedById");
-	faqFields.add("LastModifiedDate");
-	faqFields.add("LastPublishedDate");
-	faqFields.add("CreatedDate");
-	faqFields.add("CreatedById");
-	faqFields.add("IsVisibleInCsp");
-	faqFields.add("IsVisibleInApp");
-	faqFields.add("IsVisibleInPrm");
-	faqFields.add("IsVisibleInPkb");
-	*/
 	  
 	initDefaultFields(faqFields);
 	// custom fields
@@ -209,23 +195,27 @@ public class SfdcCrawler implements Runnable {
     config.setPassword(PASSWORD);
     //config.setTraceMessage(true);
     
+    if (LAST_CRAWL == null) {
+    	LOG.info("Salesforce Crawler:Indexing INITIAL LOAD");
+    	
+    	// load sfdc metadata
+        // TODO: faq, collateral sObjects should be queried from sfdc    	
+    }
+    
     try {
       connection = Connector.newConnection(config);
       
       LOG.info("Salesforce Crawler:Auth EndPoint: "+config.getAuthEndpoint());
       LOG.info("Salesforce Crawler:Service EndPoint: "+config.getServiceEndpoint());
       
-      
-      // TODO: faq, collateral sObjects should be queried from sfdc
+
       updateIndex(SFDC_FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields, LAST_CRAWL);
       updateIndex(SFDC_FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields, LAST_CRAWL);
       if (LAST_CRAWL != null) {
-    	  // only look to remove articles if this isn't first time crawling
-    	  removeIndex(SFDC_FETCH_LIMIT, "FAQ__kav", LAST_CRAWL);
-    	  removeIndex(SFDC_FETCH_LIMIT, "Collateral__kav", LAST_CRAWL);
     	  LOG.info("Salesforce Crawler:Indexing since last crawl="+LAST_CRAWL.toString());
-      } else {
-    	  LOG.info("Salesforce Crawler:Indexing INITIAL LOAD");
+    	  removeArchivedAndOffline(SFDC_FETCH_LIMIT, "FAQ__kav", LAST_CRAWL);
+    	  removeArchivedAndOffline(SFDC_FETCH_LIMIT, "Collateral__kav", LAST_CRAWL);
+    	  removeDeleted(LAST_CRAWL);
       }
     } catch (ConnectionException ce) {
     	handleException(ce);
@@ -289,44 +279,134 @@ public class SfdcCrawler implements Runnable {
    * finds and deletes from index knowledgeArticles which should be removed
    * 
    * +articles that have been archived
+   * +articles taken offline while editing
    * 
    * @param limit
    * @param sObjectName
    */
-  private void removeIndex(int limit, String sObjectName, Date lastCrawl) {
-	    
-	    LOG.info("Salesforce Crawler:Querying for archived "+sObjectName+" objects...");
-	    
-	    int indexCt = 0;
-	  	  
-	  	ArrayList<String> result=new ArrayList<String>();
-	    try {  	    
-	      QueryResult queryResults = 
-	    		connection.query("SELECT KnowledgeArticleId FROM "+sObjectName+
-	    				" WHERE PublishStatus='Archived' AND Language = 'en_US' " +
-	    				buildLastCrawlDateQuery(lastCrawl) +
-	    				"ORDER BY LastModifiedDate DESC LIMIT "+limit);
-	      if (queryResults.getSize() > 0) {
-			  for (SObject s : queryResults.getRecords()) {
-				  if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
-					  result.add(s.getChild("KnowledgeArticleId").getValue().toString());
-					  indexCt++;
-				  }
+  private void removeArchivedAndOffline(int limit, String sObjectName, Date lastCrawl) {
+    
+    LOG.info("Salesforce Crawler:Querying for archived "+sObjectName+" objects...");
+    
+    int indexCt = 0;
+  	  
+  	ArrayList<String> removeFromIndex = new ArrayList<String>();
+  	ArrayList<String> drafts = new ArrayList<String>();
+    try {
+      // 1. find archived articles, these should always be removed removed from index
+	  QueryResult archivedResults = 
+			connection.query("SELECT KnowledgeArticleId FROM "+sObjectName+
+					" WHERE PublishStatus='Archived' AND Language = 'en_US' " +
+					buildLastCrawlDateQuery(lastCrawl) +
+					"ORDER BY LastModifiedDate DESC LIMIT "+limit);
+	  if (archivedResults.getSize() > 0) {
+		  for (SObject s : archivedResults.getRecords()) {
+			  if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
+				  removeFromIndex.add(s.getChild("KnowledgeArticleId").getValue().toString());
+				  indexCt++;
 			  }
-	      }
-	      Iterator<String> i = result.iterator();
-	      while (i.hasNext()) {
-	    	  state.getProcessor().delete(i.next());
-	      }
-	    } catch (Exception e) {
-	    	StringWriter sw = new StringWriter();
-				PrintWriter pw = new PrintWriter(sw);
-				e.printStackTrace(pw);
-	      LOG.info(sw.toString());
-	    }
-	    LOG.info("Salesforce Crawler:Removing "+indexCt+" "+sObjectName+" objects.");
-	  }  
+		  }
+	  }
+	  
+	  // 2a. find articles in Draft
+	  String d="SELECT KnowledgeArticleId FROM "+sObjectName+
+		" WHERE PublishStatus='Draft' AND Language = 'en_US'" +
+		buildLastCrawlDateQuery(lastCrawl) +
+		" LIMIT "+limit;
+	  LOG.info("Salesforce Crawler: all drafts d="+d);
+	  QueryResult draftResults =
+			connection.query(d);
+	  if (draftResults.getSize() > 0) {
+		  for (SObject s : draftResults.getRecords()) {
+			  if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
+				  drafts.add(s.getChild("KnowledgeArticleId").getValue().toString());
+			  }
+		  }
+	  }
+	  // 2a. is the draft also Online?
+	  String q = "SELECT KnowledgeArticleId FROM "+sObjectName+
+				" WHERE PublishStatus='Online' AND Language = 'en_US'" +
+				" AND KnowledgeArticleId IN ('"+implodeArray(drafts, "','")+"') " +
+				buildLastCrawlDateQuery(lastCrawl) +
+				" LIMIT "+limit;
+	  LOG.info("Salesforce Crawler: draft article also Online? q="+q);
+	  QueryResult draftAndOnlineResults = 
+			connection.query(q);
+	  if (draftAndOnlineResults.getSize() > 0) {
+		  for (SObject s : draftAndOnlineResults.getRecords()) {
+			  if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
+				  // The article was found online, that means we should NOT remove from Index
+				  drafts.remove(s.getChild("KnowledgeArticleId").getValue().toString());
+			  }
+		  }
+	  }
+	  // Combine archived and archivedANDNotOnline lists for removal from Index
+	  indexCt+=drafts.size();
+	  removeFromIndex.addAll(drafts);
+
+	  // remove fromIndex
+	  Iterator<String> i = removeFromIndex.iterator();
+	  while (i.hasNext()) {
+		  String id = i.next().toString();
+		  LOG.info("Salesforce Crawler: Removing from index archived or offline article KnowledgeArticleId="+id);
+		  state.getProcessor().delete(id);
+	  }
+	  
+    } catch (Exception e) {
+    	StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+      LOG.info(sw.toString());
+    }
+    LOG.info("Salesforce Crawler:Removing "+indexCt+" "+sObjectName+" objects.");
+  }
   
+
+  /**
+   * find deleted articles, removes them from index
+   * 
+   * @param limit
+   */
+  private void removeDeleted(Date lastCrawl) {
+    
+    LOG.info("Salesforce Crawler:Querying for deleted objects...");
+    
+    int indexCt = 0;
+  	  
+  	ArrayList<String> removeFromIndex = new ArrayList<String>();
+    try {
+	  
+	  // 3. find all deleted articles
+	  String del = "SELECT Id FROM KnowledgeArticle WHERE IsDeleted = true" +
+			  buildLastCrawlDateQuery(lastCrawl);
+	  QueryResult deleted = 
+			connection.queryAll(del);
+	  if (deleted.getSize() > 0) {
+		  for (SObject s : deleted.getRecords()) {
+			  if (s.getChild("Id") != null && s.getChild("Id").getValue() != null) {
+				  indexCt++;
+				  removeFromIndex.add(s.getChild("Id").getValue().toString());
+			  }
+		  }
+	  }
+
+	  // remove fromIndex
+	  Iterator<String> i = removeFromIndex.iterator();
+	  while (i.hasNext()) {
+		  String id = i.next().toString();
+		  LOG.info("Salesforce Crawler: Removing deleted article KnowledgeArticleId="+id);
+		  state.getProcessor().delete(id);
+	  }
+	  
+	  
+    } catch (Exception e) {
+    	StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+      LOG.info(sw.toString());
+    }
+    LOG.info("Salesforce Crawler:Removing "+indexCt+" deleted objects.");
+  }  
   /**
    * takes result hash and indexes field/values into solr
    * @param values
@@ -424,7 +504,7 @@ public class SfdcCrawler implements Runnable {
 	result += implodeArray(metaFields, ",");
 	result += ", (SELECT "+ implodeArray(childMetadataFields, ",") + " FROM DataCategorySelections ) ";
 	result += " FROM "+sObjectName;
-	result += " WHERE PublishStatus = 'Online' AND Language = 'en_US'";
+	result += " WHERE PublishStatus = 'Online' AND Language = 'en_US' AND IsDeleted = false";
 	result += buildLastCrawlDateQuery(lastCrawl);
 	result += " ORDER BY LastModifiedDate DESC LIMIT "+limit;
 	

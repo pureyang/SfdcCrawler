@@ -16,6 +16,7 @@ import org.apache.tika.metadata.Metadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.leancog.Salesforce.metadata.Generator;
 import com.sforce.soap.partner.Connector;
 import com.sforce.soap.partner.PartnerConnection;
 import com.sforce.soap.partner.QueryResult;
@@ -41,18 +42,13 @@ public class PartnerQueryEngine {
 	private Date LAST_CRAWL;
 	
 	//
-	//private ArrayList<String> articleTypes = new ArrayList<String>();
-	private ArrayList<String> faqFields = new ArrayList<String>();
-	private ArrayList<String> collateralFields = new ArrayList<String>(); 
+	private ArrayList<SCustomObject> articleTypes = new ArrayList<SCustomObject>();
+
 	private ArrayList<String> dataCategorySelectionsFields = new ArrayList<String>();
 	private ArrayList<String> userIdToNameFields = new ArrayList<String>();
   private HashMap<String, String> sfdcUserIdToUserFullname = null; 
 	
 	public PartnerQueryEngine() {
-	    // TODO: article Types should be looked up based on metadat
-	    //articleTypes.add("FAQ__kav");
-	    //articleTypes.add("Collateral__kav");
-	    initializeMetaDataFields();
 	}
 	
 	public void initConnection(String username, String passwd, int fetchLimit, Date lastCrawl) 
@@ -71,6 +67,7 @@ public class PartnerQueryEngine {
     // reset usermapping cache on every run
     sfdcUserIdToUserFullname = new HashMap<String, String>();
     
+    initializeMetaDataFields(username, passwd, config.getAuthEndpoint());
 	}
 	 
 	public void logout() throws ConnectionException {
@@ -84,8 +81,11 @@ public class PartnerQueryEngine {
       LOG.info("Salesforce Crawler:Indexing since last crawl="+LAST_CRAWL.toString());
     }
   	UpdateQueryResult result = new UpdateQueryResult();
-  	result.addResults(updateIndex(FETCH_LIMIT, "FAQ__kav", faqFields, dataCategorySelectionsFields, LAST_CRAWL));
-  	result.addResults(updateIndex(FETCH_LIMIT, "Collateral__kav", collateralFields, dataCategorySelectionsFields, LAST_CRAWL));
+  	Iterator<SCustomObject> i = articleTypes.iterator();
+  	while (i.hasNext()) {
+  	  SCustomObject customObject = i.next();
+  	  result.addResults(updateIndex(FETCH_LIMIT, customObject, dataCategorySelectionsFields, LAST_CRAWL));  
+  	}
 
   	return result;
 	}
@@ -93,14 +93,15 @@ public class PartnerQueryEngine {
 	public ArrayList<String> findDeleteds() {
 	  ArrayList<String> result = new ArrayList<String>();
     if (LAST_CRAWL != null) {
-      result.addAll(removeArchivedAndOffline(FETCH_LIMIT, "FAQ__kav", LAST_CRAWL));
-      result.addAll(removeArchivedAndOffline(FETCH_LIMIT, "Collateral__kav", LAST_CRAWL));
+      Iterator<SCustomObject> i = articleTypes.iterator();
+      while (i.hasNext()) {
+        SCustomObject customObject = i.next();
+        result.addAll(removeArchivedAndOffline(FETCH_LIMIT, customObject, LAST_CRAWL));  
+      }      
       result.addAll(removeDeleted(LAST_CRAWL));
     }	  
 		return result;
 	}
-	
-	
 
   /**
    * core update handler
@@ -109,17 +110,20 @@ public class PartnerQueryEngine {
    * @param metaFields - flat sObject definitions
    * @param childMetadataFields - child sObject definitions
    */
-  private ArrayList<HashMap<String,String>> updateIndex(int limit, String sObjectName, ArrayList<String> metaFields, ArrayList<String> childMetadataFields, Date lastCrawl) {
+  private ArrayList<HashMap<String,String>> updateIndex(int limit, SCustomObject knowledgeArticleObj, ArrayList<String> childMetadataFields, Date lastCrawl) {
           
     ArrayList<HashMap<String, String>> results = new ArrayList<HashMap<String, String>>();
-    try {       
+    
+    ArrayList<String> metaFields = knowledgeArticleObj.getFieldsAsString();
+    
+    try {
       QueryResult queryResults = 
-        connection.query(buildUpdateQuery(sObjectName, limit, metaFields, childMetadataFields, lastCrawl));
+        connection.query(buildUpdateQuery(knowledgeArticleObj.getFullName(), limit, metaFields, childMetadataFields, lastCrawl));
       if (queryResults.getSize() > 0) {
         for (SObject s : queryResults.getRecords()) {
           HashMap<String, String> result = new HashMap<String,String>();
           // add to result attachment body if present
-          addAttachmentBody(s, sObjectName, result);
+          addAttachmentBody(s, knowledgeArticleObj.getFullName(), result);
           
           // index article type which is sObject type
           metaFields.add("type");
@@ -139,7 +143,7 @@ public class PartnerQueryEngine {
           addUserFullName(s, result);
           
           // fetch voting fields
-          addVoteInfo(s, sObjectName, result);
+          addVoteInfo(s, knowledgeArticleObj.getFullName(), result);
           results.add(result);
         }
       }
@@ -159,9 +163,9 @@ public class PartnerQueryEngine {
    * @param limit
    * @param sObjectName
    */
-  private ArrayList<String> removeArchivedAndOffline(int limit, String sObjectName, Date lastCrawl) {
+  private ArrayList<String> removeArchivedAndOffline(int limit, SCustomObject sObject, Date lastCrawl) {
     
-    LOG.info("Salesforce Crawler:Querying for archived "+sObjectName+" objects...");
+    LOG.info("Salesforce Crawler:Querying for archived "+sObject.getFullName()+" objects...");
     
     int indexCt = 0;
       
@@ -170,7 +174,7 @@ public class PartnerQueryEngine {
     try {
       // 1. find archived articles, these should always be removed removed from index
       QueryResult archivedResults = 
-        connection.query("SELECT KnowledgeArticleId FROM "+sObjectName+
+        connection.query("SELECT KnowledgeArticleId FROM "+sObject.getFullName()+
             " WHERE PublishStatus='Archived' AND Language = 'en_US' " +
             buildLastCrawlDateQuery(lastCrawl) +
             "ORDER BY LastModifiedDate DESC LIMIT "+limit);
@@ -184,7 +188,7 @@ public class PartnerQueryEngine {
       }
       
       // 2a. find articles in Draft
-      String d="SELECT KnowledgeArticleId FROM "+sObjectName+
+      String d="SELECT KnowledgeArticleId FROM "+sObject.getFullName()+
       " WHERE PublishStatus='Draft' AND Language = 'en_US'" +
       buildLastCrawlDateQuery(lastCrawl) +
       " LIMIT "+limit;
@@ -199,12 +203,11 @@ public class PartnerQueryEngine {
         }
       }
       // 2a. is the draft also Online?
-      String q = "SELECT KnowledgeArticleId FROM "+sObjectName+
+      String q = "SELECT KnowledgeArticleId FROM "+sObject.getFullName()+
           " WHERE PublishStatus='Online' AND Language = 'en_US'" +
           " AND KnowledgeArticleId IN ('"+UtilityLib.implodeArray(drafts, "','")+"') " +
           buildLastCrawlDateQuery(lastCrawl) +
           " LIMIT "+limit;
-      LOG.info("Salesforce Crawler: draft article also Online? q="+q);
       QueryResult draftAndOnlineResults = 
         connection.query(q);
       if (draftAndOnlineResults.getSize() > 0) {
@@ -222,7 +225,7 @@ public class PartnerQueryEngine {
     } catch (Exception e) {
       UtilityLib.debugException(LOG, e);
     }
-    LOG.info("Salesforce Crawler:Removing "+indexCt+" "+sObjectName+" objects.");
+    LOG.info("Salesforce Crawler:Removing "+indexCt+" "+sObject.getFullName()+" objects.");
     return removeFromIndex;
   }	
 	
@@ -398,7 +401,6 @@ public class PartnerQueryEngine {
     result += " WHERE PublishStatus = 'Online' AND Language = 'en_US' AND IsDeleted = false";
     result += buildLastCrawlDateQuery(lastCrawl);
     result += " ORDER BY LastModifiedDate DESC LIMIT "+limit;
-    
     return result;
   }
   
@@ -502,47 +504,22 @@ public class PartnerQueryEngine {
 	 * below classes should be moved to metadata classes
 	 */
 
-	  private void initializeMetaDataFields() {
-		  
-		initDefaultFields(faqFields);
-		// custom fields
-		faqFields.add("Question__c");
-		faqFields.add("Answer__c");
-		faqFields.add("Attachment__ContentType__s");
-		faqFields.add("Attachment__Length__s");
-		faqFields.add("Attachment__Name__s");	
-
-		initDefaultFields(collateralFields);
-
-		// custom fields
-		collateralFields.add("Attachment__ContentType__s");
-		collateralFields.add("Attachment__Length__s");
-		collateralFields.add("Attachment__Name__s");
-		
-		dataCategorySelectionsFields.add("DataCategoryGroupName");
-		dataCategorySelectionsFields.add("DataCategoryName");
-		
-		userIdToNameFields.add("OwnerId");
-		userIdToNameFields.add("CreatedById");
-		userIdToNameFields.add("LastModifiedById");
+	  private void initializeMetaDataFields(String username, String password, String url) {
+	    // only fetch metadata once at the start
+	    if (LAST_CRAWL == null) {
+  		  try {
+    	    Generator gen = new Generator();
+    	    articleTypes = gen.fetchMetadata(username, password, url);
+    	  } catch (Exception e) {
+  		    UtilityLib.errorException(LOG, e);
+  		  }
+	    }
+  		dataCategorySelectionsFields.add("DataCategoryGroupName");
+  		dataCategorySelectionsFields.add("DataCategoryName");
+  		
+  		userIdToNameFields.add("OwnerId");
+  		userIdToNameFields.add("CreatedById");
+  		userIdToNameFields.add("LastModifiedById");
 	  }
-	  
-	  private void initDefaultFields(ArrayList<String> target) {
-		  target.add("KnowledgeArticleId");
-		  target.add("Title");
-		  target.add("Summary");
-		  target.add("OwnerId");
-		  target.add("UrlName");
-		  target.add("ArticleNumber");
-		  target.add("FirstPublishedDate");
-		  target.add("LastModifiedById");
-		  target.add("LastModifiedDate");
-		  target.add("LastPublishedDate");
-		  target.add("CreatedDate");
-		  target.add("CreatedById");
-		  target.add("IsVisibleInCsp");
-		  target.add("IsVisibleInApp");
-		  target.add("IsVisibleInPrm");
-		  target.add("IsVisibleInPkb");
-	  }
+
 }

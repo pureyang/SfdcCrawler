@@ -2,8 +2,10 @@ package com.leancog.crawl;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
@@ -26,7 +28,6 @@ public class RegistrationCheck {
   private static final String crawlerRegistrationFileName = "crawler.reg";
   private static final String distributedKeyFileName = "distributed.key";
   private final String ENCRYPTION_ALGORITHM = "RSA";
-  private final int ENCRYPTION_LENGTH = 4096;
   
 	public RegistrationCheck() {
 		// upon creation, always check 
@@ -38,18 +39,25 @@ public class RegistrationCheck {
 	  
 	  RandomAccessFile f;
     try {
-      // read key file
-      File parentFile = new File(distributedKeyFileName);
-      // hack to get to the right directory
-      String reg = parentFile.getAbsolutePath().replace("bin", "crawlers");
-      File keyFile = new File(reg);
+      // read key file from jar
+      File keyFile = new File(distributedKeyFileName);
+      InputStream is = getClass().getClassLoader().getResourceAsStream(distributedKeyFileName);
+      // convert InputStream to File
+      OutputStream out = new FileOutputStream(keyFile);
+      byte buf[]=new byte[1024];
+      int len;
+      while((len=is.read(buf))>0)
+      out.write(buf,0,len);
+      out.close();
+      is.close();
+      
       LOG.info("Salesforce Crawler:Looking for key file="+keyFile.getAbsolutePath());
       PrivateKey prvk = LoadEncryptionKey(keyFile, ENCRYPTION_ALGORITHM);
 
       // read the registration file for verification
-      parentFile = new File(crawlerRegistrationFileName);
+      File parentFile = new File(crawlerRegistrationFileName);
       // hack to get to the right directory
-      reg = parentFile.getAbsolutePath().replace("bin", "crawlers");
+      String reg = parentFile.getAbsolutePath().replace("bin", "crawlers");
       File registrationFile = new File(reg);
       LOG.info("Salesforce Crawler:Looking for registration file="+registrationFile.getAbsolutePath());
       
@@ -62,7 +70,7 @@ public class RegistrationCheck {
       f.close();
       
       String decString = new String(decBytes);
-      
+      // plaintext is [companyname]::[date of registration]
       String[] tokens = decString.split("::");
       DateFormat dateformatter = new SimpleDateFormat("EEE MMM dd hh:mm:ss zzz yyyy");
 
@@ -76,6 +84,8 @@ public class RegistrationCheck {
       if (nowDate.before(registeredCal)) {
         return true;
       }
+      // cleanup registration file after completion
+      keyFile.delete();
       LOG.warn("Salesforce Crawler:Registration expired on:"+registeredCal.getTime().toString());
     } catch (Exception e) {
       UtilityLib.errorException(LOG, e);

@@ -224,10 +224,7 @@ public class MetadataQueryEngine {
     List<PackageTypeMembers> listPackageTypes = new ArrayList<PackageTypeMembers>();
     DocumentBuilder db =
             DocumentBuilderFactory.newInstance().newDocumentBuilder();
-    LOG.info("SFDC: file url="+getClass().getClassLoader().getResource(file));
-    LOG.info("SFDC: file="+file.toString());
     InputStream inputStream = getClass().getClassLoader().getResourceAsStream(file);
-    
     
     org.w3c.dom.Element d = db.parse(inputStream).getDocumentElement();
     for (org.w3c.dom.Node c = d.getFirstChild(); c != null; c = c.getNextSibling()) {

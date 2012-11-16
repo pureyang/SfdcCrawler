@@ -1,4 +1,4 @@
-package com.leancog.Salesforce;
+package com.leancog.salesforce;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -16,7 +16,7 @@ import org.apache.tika.metadata.Metadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.leancog.Salesforce.metadata.Generator;
+import com.leancog.salesforce.metadata.MetadataQueryEngine;
 import com.sforce.soap.partner.Connector;
 import com.sforce.soap.partner.PartnerConnection;
 import com.sforce.soap.partner.QueryResult;
@@ -508,8 +508,8 @@ public class PartnerQueryEngine {
 	    // only fetch metadata once at the start
 	    if (LAST_CRAWL == null) {
   		  try {
-    	    Generator gen = new Generator();
-    	    articleTypes = gen.fetchMetadata(username, password, url);
+    	    MetadataQueryEngine gen = new MetadataQueryEngine();
+    	    articleTypes = gen.queryMetadata(username, password, url);
     	  } catch (Exception e) {
   		    UtilityLib.errorException(LOG, e);
   		  }

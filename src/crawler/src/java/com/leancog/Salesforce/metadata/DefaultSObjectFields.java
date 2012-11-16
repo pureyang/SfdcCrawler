@@ -1,8 +1,8 @@
-package com.leancog.Salesforce.metadata;
+package com.leancog.salesforce.metadata;
 
 import java.util.ArrayList;
 
-import com.leancog.Salesforce.SObjectField;
+import com.leancog.salesforce.SObjectField;
 
 public class DefaultSObjectFields {
   /**

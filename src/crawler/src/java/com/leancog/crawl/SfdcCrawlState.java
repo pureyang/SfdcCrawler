@@ -1,12 +1,9 @@
 package com.leancog.crawl;
 
-import java.util.Date;
-
 import com.lucid.crawl.CrawlState;
 
 public class SfdcCrawlState extends CrawlState {
   SfdcCrawler crawler = null;
-  Date lastCrawl = null;
 
   Thread t = null;
   
@@ -27,11 +24,4 @@ public class SfdcCrawlState extends CrawlState {
     crawler.stop();
   }
   
-  public Date getLastCrawl() {
-	return lastCrawl;
-  }
-
-  public void setLastCrawl(Date lastCrawl) {
-	this.lastCrawl = lastCrawl;
-  }
 }

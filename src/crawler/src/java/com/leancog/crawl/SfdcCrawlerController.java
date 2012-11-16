@@ -1,7 +1,5 @@
 package com.leancog.crawl;
 
-import java.util.Date;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +13,6 @@ import com.lucid.crawl.batch.BatchManager;
 
 public class SfdcCrawlerController extends CrawlerController {
   private static final Logger LOG = LoggerFactory.getLogger(SfdcCrawlerController.class);
-  private static Date LAST_CRAWL = null;
 
   /** Symbolic name to use when initializing and using REST API. */
   public static final String CC_EX = "leancog.crawler";
@@ -68,14 +65,12 @@ public class SfdcCrawlerController extends CrawlerController {
     if (state == null) {
       throw new Exception("unknown crawl id " + jobId);
     }
-    // if this is the first crawl, then lastcrawl is null
-    state.setLastCrawl(LAST_CRAWL);
+
     if (state.getStatus().isRunning()) {
       LOG.warn("already running");
       return;
     }
     state.start();
-    LAST_CRAWL = new Date();
   }
 
   @Override

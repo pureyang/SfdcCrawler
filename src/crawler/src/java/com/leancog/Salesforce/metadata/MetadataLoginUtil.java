@@ -1,4 +1,4 @@
-package com.leancog.Salesforce.metadata;
+package com.leancog.salesforce.metadata;
 import com.sforce.soap.partner.PartnerConnection;
 import com.sforce.soap.partner.LoginResult;
 import com.sforce.soap.metadata.MetadataConnection;

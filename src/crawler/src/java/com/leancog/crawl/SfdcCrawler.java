@@ -1,16 +1,18 @@
 package com.leancog.crawl;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
+import java.util.logging.Level;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.leancog.Salesforce.PartnerQueryEngine;
-import com.leancog.Salesforce.UpdateQueryResult;
-import com.leancog.Salesforce.UtilityLib;
+import com.leancog.salesforce.PartnerQueryEngine;
+import com.leancog.salesforce.UpdateQueryResult;
+import com.leancog.salesforce.UtilityLib;
 import com.lucid.Defaults.Group;
 import com.lucid.admin.collection.datasource.DataSource;
 import com.lucid.crawl.CrawlDataSource;
@@ -33,6 +35,8 @@ public class SfdcCrawler implements Runnable {
   long maxSize;
   int depth;
   boolean stopped = false;
+  
+  private static Date LAST_CRAWL = null;
 
   private PartnerQueryEngine partnerQueryEngine = null;
   private int SFDC_FETCH_LIMIT = 1000;
@@ -67,7 +71,7 @@ public class SfdcCrawler implements Runnable {
       	RegistrationCheck checker = new RegistrationCheck();
       	if (!checker.verify()) {
       		Exception failed = new Exception(REGISTRATION_ERROR_MSG);
-      		UtilityLib.errorException(LOG, failed);
+      		LOG.error("Salesforce Crawler: REGISTRATION FAILURE, contact support@leancog.com: ", failed);
       		state.getStatus().failed(failed);
       		return;
       	}
@@ -85,7 +89,7 @@ public class SfdcCrawler implements Runnable {
         // optional commit - if false then it streamlines multiple small crawls
         state.getProcessor().getUpdateController().finish(commit);
       } catch (Exception e) {
-        e.printStackTrace();
+        LOG.error("Exception in Salesforce crawl", e);
       }
       if (stopped) {
         state.getStatus().end(JobState.STOPPED);
@@ -108,13 +112,13 @@ public class SfdcCrawler implements Runnable {
   
   private void runSalesforceCrawl() throws Exception {
     LOG.info("Salesforce Crawler: Starting");
-    
+    Date start = new Date();
     try {
       partnerQueryEngine.initConnection(
           ds.getString(SfdcSpec.SFDC_LOGIN), 
           ds.getString(DataSource.PASSWORD), 
           ds.getInt(SfdcSpec.SFDC_MAX_ARTICLE_FETCH_COUNT, SFDC_FETCH_LIMIT),
-          state.getLastCrawl()
+          LAST_CRAWL
         );
     } catch (ConnectionException ce) {
       LOG.error("Salesforce Crawler:Failed to connect to salesforce. Stopping Crawl.");
@@ -127,6 +131,8 @@ public class SfdcCrawler implements Runnable {
     indexUpdates(updateResults);
     
     indexDeleted(partnerQueryEngine.findDeleteds());
+    // last crawl is when this crawl started
+    LAST_CRAWL = start;
   }
   
   
@@ -137,11 +143,11 @@ public class SfdcCrawler implements Runnable {
       Iterator<String> i = removeFromIndex.iterator();
       while (i.hasNext()) {
         String id = i.next().toString();
-        LOG.info("Salesforce Crawler: Removing deleted article KnowledgeArticleId="+id);
+        LOG.debug("Salesforce Crawler: Removing deleted article KnowledgeArticleId="+id);
         state.getProcessor().delete(id);
       }
     } catch (Exception e) {
-      UtilityLib.debugException(LOG, e);
+      UtilityLib.errorException(LOG, e);
       state.getStatus().incrementCounter(Counter.Failed);
     }
     
@@ -189,7 +195,7 @@ public class SfdcCrawler implements Runnable {
     			state.getProcessor().process(c);
     		}
       } catch (Exception e) {
-      	UtilityLib.debugException(LOG, e);
+      	UtilityLib.errorException(LOG, e);
       	state.getStatus().incrementCounter(Counter.Failed);
       }
     }

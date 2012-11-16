@@ -1,4 +1,4 @@
-package com.leancog.Salesforce;
+package com.leancog.salesforce;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;

@@ -1,4 +1,4 @@
-package com.leancog.Salesforce;
+package com.leancog.salesforce;
 
 public class SObjectField {
   private String FullName;

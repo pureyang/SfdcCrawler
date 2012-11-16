@@ -19,7 +19,7 @@ import javax.crypto.Cipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.leancog.Salesforce.UtilityLib;
+import com.leancog.salesforce.UtilityLib;
 
 public class RegistrationCheck {
   private static final Logger LOG = LoggerFactory.getLogger(RegistrationCheck.class);

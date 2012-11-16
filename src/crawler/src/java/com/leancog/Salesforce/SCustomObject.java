@@ -1,10 +1,10 @@
-package com.leancog.Salesforce;
+package com.leancog.salesforce;
 
 
 import java.util.ArrayList;
 import java.util.Iterator;
 
-import com.leancog.Salesforce.metadata.DefaultSObjectFields;
+import com.leancog.salesforce.metadata.DefaultSObjectFields;
 
 public class SCustomObject {
   

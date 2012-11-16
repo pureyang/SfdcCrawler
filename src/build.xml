@@ -5,7 +5,7 @@
   <property name="libext.dir" value="crawler/src/lib-ext"/>	
   <property name="jarfile" value="${builddir}/sfdc-crawler.jar"/>
   <property name="libfile" value="${builddir}/sfdc-lib.jar"/>
-  <property name="distributed.key" value="${basedir}/crawler/distributed.key"/>
+  <property name="distributed.key" value="${basedir}\crawler\distributed.key"/>
 	<property name="articleTypes.xml" value="${basedir}/crawler/articleTypes.xml"/>
   <path id="lwe-runtime-libraries">
     <fileset dir="${lwe.home}/app/webapps/lwe-core/lwe-core/WEB-INF/lib">
@@ -117,13 +117,13 @@ E.g.
     <jar basedir="${libclasses}"
       jarfile="${libfile}"
       includes="**"/>
-    <echo message="distributed.key = ${distributed.key}"/>
     <jar basedir="${classes}"
       jarfile="${jarfile}"
-      includes="com/**">
+      includes="com/**"
+	  includesfile="${distributed.key}">
       <fileset file="${libfile}"/>
-      <includesfile name="${distributed.key}"/>
-  	  <includesfile name="${articleTypes.xml}"/>
+	  <fileset file="${distributed.key}"/>
+	  <fileset file="${articleTypes.xml}"/>	  
       <manifest>
         <attribute name="Crawler-Alias" value="salesforce.crawler"/>
         <attribute name="Crawler-Class" value="com.leancog.crawl.SfdcCrawlerController"/>

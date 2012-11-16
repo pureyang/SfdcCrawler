@@ -134,21 +134,10 @@ public class MetadataQueryEngine {
   }
 
   private void setUnpackaged(String manifestFile, RetrieveRequest request) throws Exception {
-      // Edit the path, if necessary, if your package.xml file is located elsewhere 
-  
-      File unpackedManifest = new File(manifestFile);
-      LOG.debug("Manifest file: " + unpackedManifest.getAbsolutePath());
-
-      if (!unpackedManifest.exists() || !unpackedManifest.isFile()) {
-          throw new Exception("Should provide a valid retrieve manifest " +
-              "for unpackaged content. Looking for " +
-              unpackedManifest.getAbsolutePath());
-      }
 
       // Note that we use the fully qualified class name because 
       // of a collision with the java.lang.Package class 
-  
-      com.sforce.soap.metadata.Package p = parsePackageManifest(unpackedManifest);
+      com.sforce.soap.metadata.Package p = parsePackageManifest(manifestFile);
       request.setUnpackaged(p);
   }
   
@@ -229,13 +218,17 @@ public class MetadataQueryEngine {
   }
   
 
-  private com.sforce.soap.metadata.Package parsePackageManifest(File file)
+  private com.sforce.soap.metadata.Package parsePackageManifest(String file)
           throws ParserConfigurationException, IOException, SAXException {
     com.sforce.soap.metadata.Package packageManifest = null;
     List<PackageTypeMembers> listPackageTypes = new ArrayList<PackageTypeMembers>();
     DocumentBuilder db =
             DocumentBuilderFactory.newInstance().newDocumentBuilder();
-    InputStream inputStream = new FileInputStream(file);
+    LOG.info("SFDC: file url="+getClass().getClassLoader().getResource(file));
+    LOG.info("SFDC: file="+file.toString());
+    InputStream inputStream = getClass().getClassLoader().getResourceAsStream(file);
+    
+    
     org.w3c.dom.Element d = db.parse(inputStream).getDocumentElement();
     for (org.w3c.dom.Node c = d.getFirstChild(); c != null; c = c.getNextSibling()) {
         if (c instanceof org.w3c.dom.Element) {

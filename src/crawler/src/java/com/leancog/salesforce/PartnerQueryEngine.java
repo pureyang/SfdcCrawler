@@ -41,7 +41,8 @@ public class PartnerQueryEngine {
 	private int FETCH_LIMIT;
 	private Date LAST_CRAWL;
 	
-	//
+	// articleTypes contains every Salesforce Article Type
+	// as well as default and custom fields for each
 	private ArrayList<SCustomObject> articleTypes = new ArrayList<SCustomObject>();
 
 	private ArrayList<String> dataCategorySelectionsFields = new ArrayList<String>();
@@ -505,15 +506,12 @@ public class PartnerQueryEngine {
 	 */
 
 	  private void initializeMetaDataFields(String username, String password, String url) {
-	    // only fetch metadata once at the start
-	    if (LAST_CRAWL == null) {
-  		  try {
-    	    MetadataQueryEngine gen = new MetadataQueryEngine();
-    	    articleTypes = gen.queryMetadata(username, password, url);
-    	  } catch (Exception e) {
-  		    UtilityLib.errorException(LOG, e);
-  		  }
-	    }
+		  try {
+  	    MetadataQueryEngine gen = new MetadataQueryEngine();
+  	    articleTypes = gen.queryMetadata(username, password, url);
+  	  } catch (Exception e) {
+		    UtilityLib.errorException(LOG, e);
+		  }
   		dataCategorySelectionsFields.add("DataCategoryGroupName");
   		dataCategorySelectionsFields.add("DataCategoryName");
   		

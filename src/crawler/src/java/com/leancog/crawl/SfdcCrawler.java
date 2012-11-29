@@ -5,7 +5,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
-import java.util.logging.Level;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,27 +22,36 @@ import com.sforce.ws.ConnectionException;
   
 /**
  * Salesforce.com Crawler
+ * Crawls Salesforce KnowledgeArticle into LucidWorks  
  * @author Leancog
  */
 public class SfdcCrawler implements Runnable {
  
   private static final Logger LOG = LoggerFactory.getLogger(SfdcCrawler.class);
-  private static final String REGISTRATION_ERROR_MSG = "Salesforce Crawler: Crawl Stopped, Failed Registration check.";
+  private static final String REGISTRATION_ERROR_MSG = "Salesforce Crawler: REGISTRATION FAILURE, contact support@leancog.com";
   
-  SfdcCrawlState state;
-  CrawlDataSource ds;
-  long maxSize;
-  int depth;
-  boolean stopped = false;
+  private SfdcCrawlState state;
+  private CrawlDataSource ds;
+  @SuppressWarnings("unused")
+  private long maxSize; // default solr variable, provided by Lucid, unused
+  private int depth; // default solr variable, unused
+  private boolean stopped = false;
   
-  private static Date LAST_CRAWL = null;
+  private Date LAST_CRAWL = null;
 
   private PartnerQueryEngine partnerQueryEngine = null;
-  private int SFDC_FETCH_LIMIT = 1000;
+  private int SFDC_FETCH_LIMIT = 10000; // Salesforce Max number of articles
   	  
   public SfdcCrawler(SfdcCrawlState state) {
     this.state = state;
+
+    
     this.ds = (CrawlDataSource)state.getDataSource();
+    
+    LOG.info("salesforce collection="+this.ds.getCollection()+ " ds id="+this.ds.getId());
+    // fetch last_crawl from solr API
+    LAST_CRAWL = UtilityLib.getLastCrawl( this.ds.getCollection(), this.ds.getId());
+    
     maxSize = ds.getLong(DataSource.MAX_BYTES,
             DataSource.defaults.getInt(Group.datasource, DataSource.MAX_BYTES));
     depth = ds.getInt(DataSource.CRAWL_DEPTH,
@@ -71,7 +79,7 @@ public class SfdcCrawler implements Runnable {
       	RegistrationCheck checker = new RegistrationCheck();
       	if (!checker.verify()) {
       		Exception failed = new Exception(REGISTRATION_ERROR_MSG);
-      		LOG.error("Salesforce Crawler: REGISTRATION FAILURE, contact support@leancog.com: ", failed);
+      		LOG.error(REGISTRATION_ERROR_MSG, failed);
       		state.getStatus().failed(failed);
       		return;
       	}
@@ -112,7 +120,6 @@ public class SfdcCrawler implements Runnable {
   
   private void runSalesforceCrawl() throws Exception {
     LOG.info("Salesforce Crawler: Starting");
-    Date start = new Date();
     try {
       partnerQueryEngine.initConnection(
           ds.getString(SfdcSpec.SFDC_LOGIN), 
@@ -131,8 +138,6 @@ public class SfdcCrawler implements Runnable {
     indexUpdates(updateResults);
     
     indexDeleted(partnerQueryEngine.findDeleteds());
-    // last crawl is when this crawl started
-    LAST_CRAWL = start;
   }
   
   

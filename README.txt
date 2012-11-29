@@ -1,4 +1,5 @@
 Salesforce Crawler
+v 1.0_B2
 Created by LeanCog
 
 * Crawls Salesforce Knowledge Articles

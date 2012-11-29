@@ -37,7 +37,8 @@ import com.sforce.soap.metadata.RetrieveRequest;
 import com.sforce.soap.metadata.RetrieveResult;
 
 /**
- * Sample that logs in and shows a menu of retrieve and deploy metadata options.
+ * MetadataQueryEngine allows query into Salesforce SObject schema
+ * @author leancog
  */ 
     
 public class MetadataQueryEngine {
@@ -62,6 +63,14 @@ public class MetadataQueryEngine {
   public MetadataQueryEngine() {
   }
   
+  /**
+   * queryMetadata looks for all Salesforce Custom SObjects of type KnowledgeArticle (*__kav)
+   * @param username
+   * @param password
+   * @param authPoint
+   * @return Array of SCustomObject
+   * @throws Exception
+   */
   public ArrayList<SCustomObject> queryMetadata(String username, String password, String authPoint ) throws Exception {
     metadataConnection = MetadataLoginUtil.login(username, password, authPoint);
     // fetch article types zip
@@ -185,13 +194,13 @@ public class MetadataQueryEngine {
               String Type = null;
               for ( Iterator<Element> iField = fields.elementIterator(); iField.hasNext(); ) {
                 Element field = iField.next();
-                if (field.getName() == "fullName") {
+                if (field.getName() == SObjectField.META_FULL_NAME) {
                   FullName = field.getStringValue();
                 }
-                if (field.getName() == "label") {
+                if (field.getName() == SObjectField.META_LABEL) {
                   Label = field.getStringValue();
                 }
-                if (field.getName() == "type") {
+                if (field.getName() == SObjectField.META_TYPE) {
                   Type = field.getStringValue();
                 }
               }

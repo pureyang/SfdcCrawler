@@ -7,6 +7,7 @@ import com.leancog.salesforce.SObjectField;
 public class DefaultSObjectFields {
   /**
    * initializes default sfdc obj fields
+   * @author leancog
    */
     public static ArrayList<SObjectField> initDefaultFields() {
       ArrayList<SObjectField> target = new ArrayList<SObjectField>();

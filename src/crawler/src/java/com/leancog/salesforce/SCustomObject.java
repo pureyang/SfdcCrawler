@@ -6,6 +6,11 @@ import java.util.Iterator;
 
 import com.leancog.salesforce.metadata.DefaultSObjectFields;
 
+/**
+ * SCustomObject represents one SalesForce SObject and all of its fields
+ * @author leancog
+ *
+ */
 public class SCustomObject {
   
   private final String FullName;
@@ -29,10 +34,18 @@ public class SCustomObject {
     }
   }
 
+  /**
+   * full API SObject name, e.g "Collateral__kav"
+   * @return
+   */
   public String getFullName() {
     return FullName;
   }
 
+  /**
+   * logical SObject name, e.g. Collateral
+   * @return
+   */
   public String getName() {
     return Name;
   }

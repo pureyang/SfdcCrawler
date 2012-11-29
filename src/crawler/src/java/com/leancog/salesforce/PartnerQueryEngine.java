@@ -30,7 +30,7 @@ import com.sforce.ws.bind.XmlObject;
  * 
  * findUpdates - find updated objects and their values
  * findDeleteds - find objects that are out of date
- * @author yang
+ * @author leancog
  *
  */
 public class PartnerQueryEngine {
@@ -41,12 +41,13 @@ public class PartnerQueryEngine {
 	private int FETCH_LIMIT;
 	private Date LAST_CRAWL;
 	
-	// articleTypes contains every Salesforce Article Type
-	// as well as default and custom fields for each
+	// contains all sfdc Article Types along with their default and custom fields, populated using sfdc metadata API 
 	private ArrayList<SCustomObject> articleTypes = new ArrayList<SCustomObject>();
-
+	// default SObject subfields
 	private ArrayList<String> dataCategorySelectionsFields = new ArrayList<String>();
+	// SObject fields that should be translated into full username
 	private ArrayList<String> userIdToNameFields = new ArrayList<String>();
+	// cache of sfdc userid to username
   private HashMap<String, String> sfdcUserIdToUserFullname = null; 
 	
 	public PartnerQueryEngine() {
@@ -126,8 +127,8 @@ public class PartnerQueryEngine {
           // add to result attachment body if present
           addAttachmentBody(s, knowledgeArticleObj.getFullName(), result);
           
-          // index article type which is sObject type
-          metaFields.add("type");
+          // manually insert Article Type from the SObject
+          result.put("ArticleType", knowledgeArticleObj.getName());
           
           // get fields that are flat
           for (int i=0; i<metaFields.size(); i++) {
@@ -135,7 +136,7 @@ public class PartnerQueryEngine {
           }
           
           // get fields that contain n elements
-          XmlObject categories = s.getChild("DataCategorySelections");
+          XmlObject categories = s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID);
           if (categories.hasChildren()) {   
             buildChildResult(categories, result);
           }
@@ -175,21 +176,21 @@ public class PartnerQueryEngine {
     try {
       // 1. find archived articles, these should always be removed removed from index
       QueryResult archivedResults = 
-        connection.query("SELECT KnowledgeArticleId FROM "+sObject.getFullName()+
+        connection.query("SELECT "+SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID+" FROM "+sObject.getFullName()+
             " WHERE PublishStatus='Archived' AND Language = 'en_US' " +
             buildLastCrawlDateQuery(lastCrawl) +
             "ORDER BY LastModifiedDate DESC LIMIT "+limit);
       if (archivedResults.getSize() > 0) {
         for (SObject s : archivedResults.getRecords()) {
-          if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
-            removeFromIndex.add(s.getChild("KnowledgeArticleId").getValue().toString());
+          if (s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID) != null && s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue() != null) {
+            removeFromIndex.add(s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue().toString());
             indexCt++;
           }
         }
       }
       
       // 2a. find articles in Draft
-      String d="SELECT KnowledgeArticleId FROM "+sObject.getFullName()+
+      String d="SELECT "+SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID+" FROM "+sObject.getFullName()+
       " WHERE PublishStatus='Draft' AND Language = 'en_US'" +
       buildLastCrawlDateQuery(lastCrawl) +
       " LIMIT "+limit;
@@ -198,13 +199,13 @@ public class PartnerQueryEngine {
         connection.query(d);
       if (draftResults.getSize() > 0) {
         for (SObject s : draftResults.getRecords()) {
-          if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
-            drafts.add(s.getChild("KnowledgeArticleId").getValue().toString());
+          if (s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID) != null && s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue() != null) {
+            drafts.add(s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue().toString());
           }
         }
       }
       // 2a. is the draft also Online?
-      String q = "SELECT KnowledgeArticleId FROM "+sObject.getFullName()+
+      String q = "SELECT "+SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID+" FROM "+sObject.getFullName()+
           " WHERE PublishStatus='Online' AND Language = 'en_US'" +
           " AND KnowledgeArticleId IN ('"+UtilityLib.implodeArray(drafts, "','")+"') " +
           buildLastCrawlDateQuery(lastCrawl) +
@@ -213,9 +214,9 @@ public class PartnerQueryEngine {
         connection.query(q);
       if (draftAndOnlineResults.getSize() > 0) {
         for (SObject s : draftAndOnlineResults.getRecords()) {
-          if (s.getChild("KnowledgeArticleId") != null && s.getChild("KnowledgeArticleId").getValue() != null) {
+          if (s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID) != null && s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue() != null) {
             // The article was found online, that means we should NOT remove from Index
-            drafts.remove(s.getChild("KnowledgeArticleId").getValue().toString());
+            drafts.remove(s.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue().toString());
           }
         }
       }
@@ -241,15 +242,15 @@ public class PartnerQueryEngine {
          
     ArrayList<String> removeFromIndex = new ArrayList<String>();
   
-    String del = "SELECT Id FROM KnowledgeArticle WHERE IsDeleted = true" +
+    String del = "SELECT "+SObjectField.FIELD_ID+" FROM KnowledgeArticle WHERE IsDeleted = true" +
         buildLastCrawlDateQuery(lastCrawl);
     try {
       QueryResult deleted = 
         connection.queryAll(del);
       if (deleted.getSize() > 0) {
         for (SObject s : deleted.getRecords()) {
-          if (s.getChild("Id") != null && s.getChild("Id").getValue() != null) {
-            removeFromIndex.add(s.getChild("Id").getValue().toString());
+          if (s.getChild(SObjectField.FIELD_ID) != null && s.getChild(SObjectField.FIELD_ID).getValue() != null) {
+            removeFromIndex.add(s.getChild(SObjectField.FIELD_ID).getValue().toString());
           }
         }
       }
@@ -261,22 +262,22 @@ public class PartnerQueryEngine {
 
   private void addVoteInfo(XmlObject parentObj, String sObjName, HashMap<String, String>result) {
   if (parentObj.hasChildren()) {
-    String articleId = parentObj.getChild("KnowledgeArticleId").getValue().toString();
-    result.put("VoteScore", fetchSfdcVoteInfo(articleId, sObjName));
-    result.put("ViewScore", fetchSfdcViewInfo(articleId, sObjName));
+    String articleId = parentObj.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue().toString();
+    result.put(SObjectField.FIELD_VOTE_SCORE, fetchSfdcVoteInfo(articleId, sObjName));
+    result.put(SObjectField.FIELD_VIEW_SCORE, fetchSfdcViewInfo(articleId, sObjName));
   }
   }
   
   private String fetchSfdcVoteInfo(String articleId, String sObjName) {
   String voteCount = "0";
   try {
-    String q = "SELECT NormalizedScore FROM "+sObjName.substring(0, sObjName.length()-3)+"VoteStat WHERE Channel='AllChannels' AND IsDeleted=false AND ParentId = '"+articleId+"'";
+    String q = "SELECT "+SObjectField.FIELD_NORMALIZED_SCORE+" FROM "+sObjName.substring(0, sObjName.length()-3)+"VoteStat WHERE Channel='AllChannels' AND IsDeleted=false AND ParentId = '"+articleId+"'";
     QueryResult queryResults = connection.query(q);
     if (queryResults.getSize() > 0) {
       for (SObject s : queryResults.getRecords()) {
         // grab the size element, that contains total votes
-        if (s.hasChildren() && s.getChild("NormalizedScore") != null) {
-          voteCount = s.getChild("NormalizedScore").getValue().toString();
+        if (s.hasChildren() && s.getChild(SObjectField.FIELD_NORMALIZED_SCORE) != null) {
+          voteCount = s.getChild(SObjectField.FIELD_NORMALIZED_SCORE).getValue().toString();
         }
       }     
     }
@@ -289,13 +290,13 @@ public class PartnerQueryEngine {
   private String fetchSfdcViewInfo(String articleId, String sObjName) {
   String voteCount = "0";
   try {
-    String q = "SELECT NormalizedScore FROM "+sObjName.substring(0, sObjName.length()-3)+"ViewStat WHERE Channel='AllChannels' AND IsDeleted=false AND ParentId = '"+articleId+"'";
+    String q = "SELECT "+SObjectField.FIELD_NORMALIZED_SCORE+" FROM "+sObjName.substring(0, sObjName.length()-3)+"ViewStat WHERE Channel='AllChannels' AND IsDeleted=false AND ParentId = '"+articleId+"'";
     QueryResult queryResults = connection.query(q);
     if (queryResults.getSize() > 0) {
       for (SObject s : queryResults.getRecords()) {
         // grab the size element, that contains total votes
-        if (s.hasChildren() && s.getChild("NormalizedScore") != null) {
-          voteCount = s.getChild("NormalizedScore").getValue().toString();
+        if (s.hasChildren() && s.getChild(SObjectField.FIELD_NORMALIZED_SCORE) != null) {
+          voteCount = s.getChild(SObjectField.FIELD_NORMALIZED_SCORE).getValue().toString();
         }
       }     
     }
@@ -364,8 +365,8 @@ public class PartnerQueryEngine {
    * @return
    */
   private String buildAttachmentQuery(String sObjectName, String articleId) {
-    String q = "SELECT Attachment__Body__s FROM "+sObjectName+
-        " WHERE KnowledgeArticleId='"+articleId+"'"+
+    String q = "SELECT "+SObjectField.FIELD_ATTACHMENT_BODY+" FROM "+sObjectName+
+        " WHERE "+SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID+"='"+articleId+"'"+
         " AND PublishStatus = 'Online'";
     return q;
   }
@@ -414,14 +415,14 @@ public class PartnerQueryEngine {
    */
   private void addAttachmentBody(SObject sObj, String sObjectName, HashMap<String, String>result) {
     if (sObj.hasChildren()) {
-      XmlObject len = sObj.getChild("Attachment__Length__s");
+      XmlObject len = sObj.getChild(SObjectField.FIELD_ATTACHMENT_LENGTH);
       if (len != null && len.getValue() != null) {
-      String attachLenString = sObj.getChild("Attachment__Length__s").getValue().toString();
+      String attachLenString = sObj.getChild(SObjectField.FIELD_ATTACHMENT_LENGTH).getValue().toString();
       float attachLength = Float.parseFloat(attachLenString);
       
-      String articleId = sObj.getChild("KnowledgeArticleId").getValue().toString();
+      String articleId = sObj.getChild(SObjectField.FIELD_KNOWLEDGE_ARTICLE_ID).getValue().toString();
       if (UtilityLib.notEmpty(articleId) && attachLength > 0) {
-        String contentType = sObj.getChild("Attachment__ContentType__s").toString();
+        String contentType = sObj.getChild(SObjectField.FIELD_ATTACHMENT_CONTENT_TYPE).toString();
         // found a legit attachment file, query sfdc to get body
         try {
         QueryResult queryResults = connection.query(buildAttachmentQuery(sObjectName, articleId));
@@ -433,7 +434,7 @@ public class PartnerQueryEngine {
               Tika tika = new Tika();
                   Metadata metadata = new Metadata();
                   metadata.set(Metadata.CONTENT_TYPE, contentType);
-              String body = s.getChild("Attachment__Body__s").getValue().toString();
+              String body = s.getChild(SObjectField.FIELD_ATTACHMENT_BODY).getValue().toString();
                   
                   byte[] bits = DatatypeConverter.parseBase64Binary(body);
                   
@@ -466,15 +467,15 @@ public class PartnerQueryEngine {
    * @param result
    */
   private void buildChildResult(XmlObject x, HashMap<String, String> result) {
-    if (x.getChild("DataCategoryGroupName") != null && 
-        x.getChild("DataCategoryGroupName").getValue() != null &&
-        x.getChild("DataCategoryName") != null && 
-        x.getChild("DataCategoryName").getValue() != null) {
-      String key = x.getChild("DataCategoryGroupName").getValue().toString(); 
+    if (x.getChild(SObjectField.FIELD_DATACATEGORY_GROUP_NAME) != null && 
+        x.getChild(SObjectField.FIELD_DATACATEGORY_GROUP_NAME).getValue() != null &&
+        x.getChild(SObjectField.FIELD_DATACATEGORY_NAME) != null && 
+        x.getChild(SObjectField.FIELD_DATACATEGORY_NAME).getValue() != null) {
+      String key = x.getChild(SObjectField.FIELD_DATACATEGORY_GROUP_NAME).getValue().toString(); 
       if (result.containsKey(key)) {
-        result.put(key, result.get(key)+","+x.getChild("DataCategoryName").getValue().toString());
+        result.put(key, result.get(key)+","+x.getChild(SObjectField.FIELD_DATACATEGORY_NAME).getValue().toString());
       } else {
-        result.put(key, x.getChild("DataCategoryName").getValue().toString());  
+        result.put(key, x.getChild(SObjectField.FIELD_DATACATEGORY_NAME).getValue().toString());  
       }
     }
     if (x.hasChildren()) {
@@ -506,14 +507,17 @@ public class PartnerQueryEngine {
 	 */
 
 	  private void initializeMetaDataFields(String username, String password, String url) {
-		  try {
-  	    MetadataQueryEngine gen = new MetadataQueryEngine();
-  	    articleTypes = gen.queryMetadata(username, password, url);
-  	  } catch (Exception e) {
-		    UtilityLib.errorException(LOG, e);
-		  }
-  		dataCategorySelectionsFields.add("DataCategoryGroupName");
-  		dataCategorySelectionsFields.add("DataCategoryName");
+	    // only fetch metadata once at the start
+	    if (LAST_CRAWL == null) {
+  		  try {
+    	    MetadataQueryEngine gen = new MetadataQueryEngine();
+    	    articleTypes = gen.queryMetadata(username, password, url);
+    	  } catch (Exception e) {
+  		    UtilityLib.errorException(LOG, e);
+  		  }
+	    }
+  		dataCategorySelectionsFields.add(SObjectField.FIELD_DATACATEGORY_GROUP_NAME);
+  		dataCategorySelectionsFields.add(SObjectField.FIELD_DATACATEGORY_NAME);
   		
   		userIdToNameFields.add("OwnerId");
   		userIdToNameFields.add("CreatedById");

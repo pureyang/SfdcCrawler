@@ -102,7 +102,7 @@ public class RegistrationCheck {
     return cipher.doFinal(inpBytes);
   }
   
-  public PrivateKey LoadEncryptionKey(File keyFile, String algorithm) 
+  private PrivateKey LoadEncryptionKey(File keyFile, String algorithm) 
       throws IOException, NoSuchAlgorithmException,
       InvalidKeySpecException {
     // Read Private Key.

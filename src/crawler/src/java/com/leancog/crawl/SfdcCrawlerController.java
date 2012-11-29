@@ -18,6 +18,7 @@ public class SfdcCrawlerController extends CrawlerController {
   public static final String CC_EX = "leancog.crawler";
   
   private DataSourceFactory dsFactory;
+  @SuppressWarnings("unused")
   private String uuid;
 
   public SfdcCrawlerController() {

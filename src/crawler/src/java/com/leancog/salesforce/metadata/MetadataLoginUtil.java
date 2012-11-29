@@ -6,7 +6,8 @@ import com.sforce.ws.ConnectionException;
 import com.sforce.ws.ConnectorConfig;
 
 /**
- * Login utility.
+ * Salesforce Metadata Login utility
+ * @author leancog
  */ 
     
 public class MetadataLoginUtil {
